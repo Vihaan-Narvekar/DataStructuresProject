@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Build and compare a binary search tree and an AVL tree in an interactive stock-price experiment.">
+  <meta name="theme-color" content="#f6f6ef">
+  <title>The Market That Broke a Tree</title>
+  <link rel="stylesheet" href="./styles.css">
+  <script defer src="./app.bundle.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#workspace">Skip to the experiment</a>
+  <header class="masthead">
+    <div class="shell masthead-inner">
+      <a class="brand" href="#intro">
+        <svg class="brand-mark" viewBox="0 0 34 34" aria-hidden="true"><path d="M17 11 9 23m8-12 8 12"/><circle cx="17" cy="9" r="3"/><circle cx="8" cy="24" r="3"/><circle cx="26" cy="24" r="3"/></svg>
+        <span>Data Structures Lab</span>
+      </a>
+      <button type="button" id="open-guide" class="button quiet"><span aria-hidden="true">?</span> How it works</button>
+    </div>
+  </header>
+
+  <main class="shell">
+    <section class="hero" id="intro" aria-labelledby="page-title">
+      <div>
+        <h1 id="page-title">The Market That<br class="desktop-break"> <em>Broke a Tree</em></h1>
+        <p>If stock prices keep climbing, does the highest price get easier to find? Build two trees with the same prices and test your prediction.</p>
+      </div>
+      <section class="rally-card" aria-labelledby="rally-title">
+        <svg class="rally-art" viewBox="0 0 440 190" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+          <defs><pattern id="chart-grid" width="24" height="24" patternUnits="userSpaceOnUse"><path d="M 24 0 H 0 V 24" fill="none" stroke="#91b391" stroke-opacity=".18"/></pattern></defs>
+          <rect width="440" height="190" fill="url(#chart-grid)"/>
+          <path d="M185 177 228 143 264 150 304 101 334 112 379 64 413 41" fill="none" stroke="#bce68b" stroke-width="2"/>
+          <path d="M185 177 228 143 264 150 304 101 334 112 379 64 413 41 V190 H185Z" fill="#bce68b" fill-opacity=".07"/>
+          <circle cx="413" cy="41" r="5" fill="#d1f39a" stroke="#1b382c" stroke-width="2"/>
+        </svg>
+        <div class="rally-content">
+          <h2 id="rally-title">Try a market rally</h2>
+          <p>Set a starting price and an increment to see what sorted input does.</p>
+          <button type="button" id="try-rally" class="button lime">Generate prices <span aria-hidden="true">↗</span></button>
+        </div>
+      </section>
+    </section>
+
+    <section id="workspace" class="workspace" aria-label="Build and compare trees">
+      <div class="surface build-panel">
+        <div class="build-bar">
+          <form id="insert-form" class="insert-form" novalidate>
+            <label for="price">Insert a price</label>
+            <div class="input-action">
+              <div class="price-control"><span aria-hidden="true">$</span><input id="price" inputmode="decimal" placeholder="Enter a price" autocomplete="off" aria-describedby="capacity build-status"></div>
+              <button type="submit" class="button solid">Insert <span aria-hidden="true">+</span></button>
+            </div>
+          </form>
+          <div class="run-actions">
+            <button type="button" id="sequence-toggle" class="button outlined" aria-expanded="false" aria-controls="sequence-panel">Load a sequence <span class="chevron" aria-hidden="true">⌄</span></button>
+            <button type="button" id="undo" class="button quiet" disabled>Undo</button>
+            <button type="button" id="clear" class="button quiet" disabled>Clear trees</button>
+          </div>
+        </div>
+        <div class="build-meta">
+          <p id="build-status" class="status" role="status"></p>
+          <small id="capacity"></small>
+        </div>
+        <div id="sequence-panel" class="sequence-panel" hidden>
+          <div class="sequence-grid">
+            <div>
+              <div class="segmented" role="group" aria-label="Sequence source">
+                <button type="button" id="paste-mode" aria-pressed="true">Paste prices</button>
+                <button type="button" id="generate-mode" aria-pressed="false">Generate prices</button>
+              </div>
+              <form id="paste-form" novalidate>
+                <label for="paste-prices">Prices separated by spaces or commas</label>
+                <textarea id="paste-prices" rows="2" spellcheck="false" placeholder="Enter your price sequence"></textarea>
+                <div class="button-row">
+                  <button type="submit" class="button outlined">Preview prices</button>
+                </div>
+              </form>
+              <form id="generator" novalidate hidden>
+                <div class="generator-fields">
+                  <label>Start ($)<input id="rally-start" inputmode="decimal" value="100"></label>
+                  <label>Increment ($)<input id="rally-step" inputmode="decimal" value="1"></label>
+                  <label>Count<input id="rally-count" inputmode="numeric" value="8"></label>
+                </div>
+                <button type="submit" class="button outlined">Preview rally</button>
+              </form>
+              <p id="sequence-status" class="status" role="status"></p>
+            </div>
+            <div class="sequence-preview">
+              <label for="sequence-order">Insertion order</label>
+              <div class="button-row">
+                <select id="sequence-order">
+                  <option value="entered">As entered</option>
+                  <option value="ascending">Ascending · rally</option>
+                  <option value="descending">Descending · sell-off</option>
+                  <option value="shuffle">Shuffled</option>
+                </select>
+                <button type="button" id="shuffle-again" class="button quiet" hidden>Shuffle again</button>
+              </div>
+              <p id="preview-prices" class="price-list">Preview a sequence to see its order.</p>
+              <div class="button-row">
+                <button type="button" id="start-replay" class="button solid" disabled>Replay this order</button>
+                <button type="button" id="use-current" class="button quiet" disabled>Use current prices</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="batch-bar" id="batch-bar" hidden>
+          <div>
+            <p id="batch-position"></p>
+            <ol id="batch-prices" class="price-chips" aria-label="Current replay order"></ol>
+          </div>
+          <div class="button-row">
+            <button type="button" id="step" class="button outlined">Step <span aria-hidden="true">→</span></button>
+            <button type="button" id="play" class="button solid">Play <span aria-hidden="true">▶</span></button>
+          </div>
+        </div>
+      </div>
+
+      <div class="tree-grid">
+        <article class="surface tree-panel bst-panel" aria-labelledby="bst-title">
+          <div class="tree-heading">
+            <h2 id="bst-title"><span aria-hidden="true" class="tree-dot"></span> Ordinary BST</h2>
+            <dl class="tree-stats"><div><dt>Nodes</dt><dd id="bst-count">0</dd></div><div><dt>Height</dt><dd id="bst-height">−1</dd></div></dl>
+          </div>
+          <div id="bst-view"></div>
+        </article>
+        <article class="surface tree-panel avl-panel" aria-labelledby="avl-title">
+          <div class="tree-heading">
+            <h2 id="avl-title"><span aria-hidden="true" class="tree-dot"></span> AVL tree</h2>
+            <dl class="tree-stats"><div><dt>Nodes</dt><dd id="avl-count">0</dd></div><div><dt>Height</dt><dd id="avl-height">−1</dd></div></dl>
+          </div>
+          <div id="avl-view"></div>
+        </article>
+      </div>
+    </section>
+
+    <div class="lesson-grid">
+      <section class="surface lesson-card" aria-labelledby="search-title">
+        <h2 id="search-title">Predict and search</h2>
+        <p>Which tree will visit fewer nodes for the same price?</p>
+        <form id="search-form" novalidate>
+          <label for="search-price">Search price</label>
+          <div class="input-action">
+            <div class="price-control"><span aria-hidden="true">$</span><input id="search-price" inputmode="decimal" placeholder="Enter a target" autocomplete="off" aria-describedby="search-status"></div>
+            <button type="submit" class="button solid">Search <span aria-hidden="true">→</span></button>
+          </div>
+          <button type="button" id="suggest-price" class="button text-button" disabled>Use a deepest BST key</button>
+          <details class="predictions" id="predictions">
+            <summary>Predict the comparisons</summary>
+            <div class="prediction-fields">
+              <label>BST comparisons<input id="bst-prediction" type="number" min="0" step="1"></label>
+              <label>AVL comparisons<input id="avl-prediction" type="number" min="0" step="1"></label>
+            </div>
+          </details>
+        </form>
+        <p id="search-status" class="status" role="status"></p>
+        <div id="search-results" class="search-results" hidden></div>
+      </section>
+      <section class="surface lesson-card" aria-labelledby="rotation-title">
+        <h2 id="rotation-title">Rotation practice</h2>
+        <p id="challenge-description">Insert prices until the AVL tree needs a rotation. Then try the repair yourself.</p>
+        <div id="challenge-controls" hidden>
+          <form id="rotation-prediction">
+            <label for="rotation-answer">How would you repair this imbalance?</label>
+            <div class="input-action">
+              <select id="rotation-answer" required>
+                <option value="">Choose a rotation</option>
+                <option value="left">Rotate left</option>
+                <option value="right">Rotate right</option>
+                <option value="left-right">Left, then right</option>
+                <option value="right-left">Right, then left</option>
+              </select>
+              <button type="submit" class="button outlined">Check</button>
+            </div>
+          </form>
+          <p id="rotation-feedback" class="status" role="status"></p>
+          <div class="button-row">
+            <button type="button" id="open-practice" class="button solid">Practice a rotation</button>
+            <button type="button" id="open-solution" class="button outlined">Replay the repair</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <details class="surface growth-panel" id="growth">
+      <summary><h2>Compare as the trees grow</h2></summary>
+      <div class="growth-content">
+        <p>Height is measured in edges. A search can visit at most height + 1 nodes in a nonempty tree.</p>
+        <p id="growth-empty">Insert a price to start recording heights.</p>
+        <div class="table-scroll" id="growth-table-wrap" hidden><table id="growth-table"></table></div>
+      </div>
+    </details>
+  </main>
+
+  <dialog id="guide" aria-labelledby="guide-title">
+    <div class="dialog-heading">
+      <h2 id="guide-title">How it works</h2>
+      <form method="dialog"><button class="button quiet" type="submit">Close</button></form>
+    </div>
+    <div class="guide-content">
+      <label class="motion-setting"><input id="reduce-motion" type="checkbox"> Reduce animations</label>
+      <ol>
+        <li>Insert prices into both trees. Start with prices in ascending order, then replay the same keys in a different order.</li>
+        <li>Search for a price and count the nodes each tree visits. Try the deepest key of the ordinary BST or a price you have never inserted.</li>
+        <li>Select nodes to see their balance factors. Use rotation practice to repair the AVL tree at the moment it became unbalanced.</li>
+      </ol>
+      <dl>
+        <dt>BST ordering</dt><dd>Smaller keys go left, and larger keys go right. Sorted insertions can form a chain with height n − 1 and a worst-case search of O(n).</dd>
+        <dt>AVL balance</dt><dd>The balance factor is left height minus right height. Rotations bring each node’s factor back within −1 to 1 while preserving in-order traversal. This keeps worst-case search O(log n).</dd>
+        <dt>Measurements</dt><dd>An empty tree has height −1. A leaf has height 0. Every visited node counts as one comparison, including a match.</dd>
+      </dl>
+    </div>
+  </dialog>
+
+  <dialog id="lab-dialog" aria-labelledby="lab-title">
+    <div class="dialog-heading">
+      <h2 id="lab-title">Rotation practice</h2>
+      <form method="dialog"><button id="close-lab" class="button quiet" type="submit">Close</button></form>
+    </div>
+    <div class="lab-content">
+      <p id="lab-instruction"></p>
+      <div id="lab-view" class="avl-panel"></div>
+      <div class="button-row lab-actions" id="practice-actions">
+        <button type="button" class="button outlined" id="rotate-left">Rotate left</button>
+        <button type="button" class="button outlined" id="rotate-right">Rotate right</button>
+        <button type="button" class="button quiet" id="undo-rotation">Undo move</button>
+        <button type="button" class="button quiet" id="retry-rotation">Retry</button>
+      </div>
+      <div class="button-row lab-actions" id="solution-actions" hidden>
+        <button type="button" class="button outlined" id="solution-back">Previous frame</button>
+        <button type="button" class="button solid" id="solution-next">Next frame</button>
+      </div>
+      <p id="lab-status" class="status" role="status"></p>
+      <p class="in-order"><strong>In-order keys</strong> <span id="lab-traversal"></span></p>
+    </div>
+  </dialog>
+</body>
+</html>
