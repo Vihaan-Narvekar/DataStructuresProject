@@ -96,9 +96,11 @@ export class TreeView {
     resize.observe(this.canvas);
   }
 
-  render(root, { animate = false } = {}) {
+  render(root, { animate = false, imbalance = null, compact = false } = {}) {
     this.cancelDrag();
     this.root = root;
+    this.imbalance = imbalance;
+    this.compact = compact;
     const depths = new Map();
     const parents = new Map();
     const stack = root ? [{ node: root, depth: 0 }] : [];
@@ -166,15 +168,17 @@ export class TreeView {
     shape.setAttribute('x', -width / 2);
     shape.setAttribute('width', width);
     text.textContent = price;
-    text.setAttribute('y', this.mode === 'layout' ? 0 : -6);
-    factorText.textContent = this.mode === 'layout' ? '' : `BF ${factor}`;
-    group.classList.toggle('is-unbalanced', this.mode !== 'layout' && Math.abs(factor) > 1);
+    const showFactor = this.mode !== 'layout' || key === this.imbalance;
+    text.setAttribute('y', showFactor ? -6 : 0);
+    factorText.textContent = showFactor ? `BF ${factor}` : '';
+    group.classList.toggle('is-unbalanced', showFactor && Math.abs(factor) > 1);
     group.setAttribute('aria-label', `${price}, height ${node.height}, balance factor ${factor}`);
   }
 
   layout(animate = false) {
     if (!this.canvas.clientWidth) return;
-    this.spacing = Math.max(58, ...this.data.map(item => item.width)) + 12;
+    const spacing = Math.max(58, ...this.data.map(item => item.width)) + 12;
+    this.spacing = this.compact ? Math.round(spacing * .68) : spacing;
     this.naturalWidth = this.data.length * this.spacing + 24;
     this.naturalHeight = (this.root?.height ?? 0) * LEVEL_GAP + 87;
     this.width = Math.max(this.canvas.clientWidth / this.zoom, this.naturalWidth);
@@ -257,6 +261,18 @@ export class TreeView {
       line.classList.toggle('is-visited', path.has(key) && path.has(Number(line.dataset.parent)));
     }
     if (follow && current !== null) this.ensureVisible(current);
+  }
+
+  markRotation({ pivot, promoted, branch } = {}) {
+    const roles = new Map([[pivot, 'pivot'], [promoted, 'promoted'], [branch, 'branch']]);
+    for (const [key, group] of this.nodes) {
+      const role = roles.get(key);
+      if (role) group.dataset.rotationRole = role;
+      else delete group.dataset.rotationRole;
+    }
+    for (const [key, line] of this.edges) {
+      line.classList.toggle('is-transfer-link', key === branch);
+    }
   }
 
   ensureVisible(key) {

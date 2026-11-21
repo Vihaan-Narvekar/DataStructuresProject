@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Experiment, MAX_PRICES, RotationPractice } from '../docs/js/experiment.js';
 import { inOrderNodes } from '../docs/js/trees.js';
+import { ALTERNATE_PRICES, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_SUBTREE_TRANSFER, RALLY_TARGET } from '../docs/js/rally.js';
 
 test('manual insertion keeps the trees in sync and handles duplicates, zero, and undo', () => {
   const lab = new Experiment();
@@ -56,6 +57,22 @@ test('changing the preview preserves the active run and a manual insert ends its
   assert.deepEqual(lab.preview, [7, 4, 1]);
 });
 
+test('a preset copies its exact order and preserves the custom sequence draft', () => {
+  const lab = new Experiment();
+  lab.setSource([400, 100, 700]);
+  lab.setOrder('descending');
+  const preset = [...RALLY_PRICES];
+  assert.equal(lab.startReplay(preset), true);
+  preset.reverse();
+  assert.equal(lab.step().entry.key, RALLY_PRICES[0]);
+  assert.equal(lab.startReplay([100, 100]), false);
+  assert.equal(lab.step().entry.key, RALLY_PRICES[1]);
+  assert.deepEqual(lab.preview, [700, 400, 100]);
+  assert.equal(lab.order, 'descending');
+  assert.equal(lab.startReplay(), true);
+  assert.equal(lab.step().entry.key, 700);
+});
+
 test('reports measured heights and prefix search costs from the actual run', () => {
   const lab = new Experiment();
   for (const key of [10, 20, 30, 40]) lab.insertPrice(key);
@@ -65,6 +82,42 @@ test('reports measured heights and prefix search costs from the actual run', () 
   assert.equal(lab.search(40).avl.found, true);
   assert.equal(lab.search(50).avl.found, false);
   assert.equal(lab.history.length, 4);
+});
+
+test('guided orders use identical prices and produce the expected heights and search paths', () => {
+  const lab = new Experiment();
+  const shortPath = [10300, 10500, 10600, 10700];
+  for (const [order, expectedHeight, bstPath] of [[RALLY_PRICES, 7, RALLY_PRICES], [ALTERNATE_PRICES, 3, shortPath]]) {
+    assert.equal(lab.startReplay(order), true);
+    while (lab.step()) { /* drain the sequence */ }
+    assert.deepEqual(inOrderNodes(lab.bst).map(node => node.key), RALLY_PRICES);
+    assert.deepEqual(inOrderNodes(lab.avl).map(node => node.key), RALLY_PRICES);
+    assert.equal(lab.summary().at(-1).bstHeight, expectedHeight);
+    assert.equal(lab.summary().at(-1).avlHeight, 3);
+    const { bst, avl } = lab.search(RALLY_TARGET);
+    assert.deepEqual(bst, { found: true, visited: bstPath, comparisons: bstPath.length });
+    assert.deepEqual(avl, { found: true, visited: shortPath, comparisons: 4 });
+  }
+});
+
+test('the rally records an introductory imbalance and a later subtree transfer', () => {
+  const lab = new Experiment();
+  lab.startReplay(RALLY_PRICES);
+  const traces = new Map();
+  for (let change = lab.step(); change; change = lab.step()) {
+    if (change.rotation) traces.set(change.entry.key, change.rotation);
+  }
+  const first = traces.get(RALLY_FIRST_IMBALANCE);
+  assert.equal(first, traces.values().next().value);
+  assert.deepEqual([first.pivot, first.balance, first.child], [10000, -2, 10100]);
+  assert.equal(first.steps[0].tree.key, 10100);
+
+  const transfer = traces.get(RALLY_SUBTREE_TRANSFER);
+  const before = transfer.before;
+  const { pivot, promoted, tree } = transfer.steps[0];
+  assert.deepEqual([pivot, promoted, before.right.left.key], [10100, 10300, 10200]);
+  assert.deepEqual([tree.key, tree.left.key, tree.left.right.key], [10300, 10100, 10200]);
+  assert.deepEqual(inOrderNodes(before).map(node => node.key), inOrderNodes(tree).map(node => node.key));
 });
 
 test('enforces the same capacity for manual and batch runs', () => {

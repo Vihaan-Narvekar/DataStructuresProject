@@ -1,5 +1,7 @@
 # The Market That Broke a Tree
 
+See the [iteration plan](ITERATION_PLAN.md) for the guided rally, order comparison, and rotation preview.
+
 ## What we’re building
 
 Build a public, single-page lesson that asks whether a rising stock price makes the highest price easier to find. Students construct an ordinary binary search tree (BST) and an AVL tree from the same inputs, predict search costs, measure actual node visits, and perform rotations on a tree they helped create. The published GitHub Pages project site will open directly to the interactive lesson.

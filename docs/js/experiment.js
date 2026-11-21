@@ -29,10 +29,10 @@ export class Experiment {
     this.#resetTrees();
   }
 
-  startReplay() {
-    if (!this.preview.length || this.preview.length > MAX_PRICES) return false;
+  startReplay(keys = this.preview) {
+    if (!keys.length || keys.length > MAX_PRICES || new Set(keys).size !== keys.length) return false;
     this.#resetTrees();
-    this.batch = { keys: [...this.preview], cursor: 0 };
+    this.batch = { keys: [...keys], cursor: 0 };
     return true;
   }
 

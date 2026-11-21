@@ -1,5 +1,7 @@
 import { Experiment, MAX_PRICES, RotationPractice } from './experiment.js';
+import { renderGrowthPlots } from './growth-view.js';
 import { formatPrice, generatePrices, parsePrice, parseSequence } from './prices.js';
+import { ALTERNATE_PRICES, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_SUBTREE_TRANSFER, RALLY_TARGET } from './rally.js';
 import { balance, height, inOrderNodes } from './trees.js';
 import { TreeView } from './tree-view.js';
 
@@ -12,19 +14,30 @@ const views = {
 const motion = matchMedia('(prefers-reduced-motion: reduce)');
 const sequencePanel = byId('sequence-panel');
 const growth = byId('growth');
+const toolbar = document.querySelector('.comparison-toolbar');
 const labDialog = byId('lab-dialog');
-const labView = new TreeView(byId('lab-view'), {
+const labHost = byId('lab-view');
+const preview3D = new URLSearchParams(location.search).get('preview') === '3d';
+const labView = new TreeView(labHost, {
   label: 'Rotation exercise tree',
   onSelect: updateLabButtons,
   onDrop: (child, parent) => practiceMove(practice.drop(child, parent)),
 });
 
 let active = null;
+let runKind = 'custom';
+let rallyResult = null;
+let alternateResult = null;
+let growthSelection = null;
+let pendingRepair = null;
+let transferTrace = null;
 let shownChallenge = null;
 let lastSearchTarget = null;
 let practice = null;
 let solution = null;
 let solutionIndex = 0;
+let labTransfer = null;
+let labOpener = null;
 
 byId('capacity').textContent = `Up to ${MAX_PRICES} prices per run`;
 byId('rally-count').setAttribute('aria-describedby', 'capacity');
@@ -66,6 +79,7 @@ function cancelPlayback() {
 
 async function play(kind, action) {
   cancelPlayback();
+  const startingFocus = document.activeElement;
   const session = { kind, controller: new AbortController(), pause: false };
   active = session;
   updateControls();
@@ -73,8 +87,14 @@ async function play(kind, action) {
     await action(session);
   } finally {
     if (active === session) {
+      const focused = document.activeElement === document.body ? startingFocus : document.activeElement;
       active = null;
       updateControls();
+      const leavingPlayback = [byId('play'), byId('step'), byId('search-counts')].includes(focused);
+      const next = pendingRepair ? byId('view-rally-repair')
+        : [byId('view-comparison'), byId('replay-alternate'), byId('predict-rally')].find(button => !button.hidden);
+      if (leavingPlayback && next) next.focus({ preventScroll: true });
+      else if (document.activeElement === document.body && focused === byId('step') && !focused.disabled) focused.focus({ preventScroll: true });
     }
   }
 }
@@ -94,17 +114,28 @@ function updateControls() {
   byId('suggest-price').disabled = !total;
   byId('batch-bar').hidden = !batch;
   byId('step').disabled = !availableSteps() || Boolean(active);
+  byId('step').textContent = pendingRepair ? 'Step through repair' : 'Step →';
   byId('play').disabled = batchPlaying ? active.pause : !availableSteps();
   byId('play').textContent = batchPlaying ? (active.pause ? 'Pausing…' : 'Pause') : 'Play ▶';
+  byId('repair-pause').hidden = !pendingRepair || Boolean(active);
+  byId('guided-rotation').hidden = !transferTrace || (runKind === 'rally' && availableSteps());
+  byId('search-submit').disabled = Boolean(pendingRepair) || (runKind !== 'custom' && (availableSteps() || (active && active.kind !== 'search')));
+  const guidedFinished = runKind !== 'custom' && !availableSteps() && !batchPlaying;
+  byId('predict-rally').hidden = runKind !== 'rally' || !guidedFinished || Boolean(active) || Boolean(rallyResult);
+  byId('step').hidden = byId('play').hidden = guidedFinished;
+  byId('replay-alternate').disabled = Boolean(active);
+  byId('view-comparison').hidden = !alternateResult;
 }
 
 function renderBatch() {
   const batch = experiment.batch;
   if (!batch) return;
   const next = batch.keys[batch.cursor];
-  byId('batch-position').textContent = next === undefined
+  const progress = next === undefined
     ? `Sequence complete · ${batch.cursor} of ${batch.keys.length} inserted`
     : `${batch.cursor} of ${batch.keys.length} inserted · Next ${formatPrice(next)}`;
+  const label = { rally: 'Rally', alternate: 'Different order' }[runKind];
+  byId('batch-position').textContent = label ? `${label} · ${progress}` : progress;
   const list = byId('batch-prices');
   const scroll = list.scrollLeft;
   list.replaceChildren(...batch.keys.map((key, index) => {
@@ -115,11 +146,18 @@ function renderBatch() {
     return chip;
   }));
   list.scrollLeft = scroll;
+  const current = list.querySelector('[aria-current]');
+  if (current) {
+    const viewport = list.getBoundingClientRect();
+    const chip = current.getBoundingClientRect();
+    if (chip.right > viewport.right) list.scrollLeft += chip.right - viewport.right;
+    if (chip.left < viewport.left) list.scrollLeft -= viewport.left - chip.left;
+  }
 }
 
-function renderTrees(avl = experiment.avl) {
+function renderTrees(avl = experiment.avl, imbalance = null) {
   views.bst.render(experiment.bst);
-  views.avl.render(avl);
+  views.avl.render(avl, { imbalance });
   renderStats(avl);
 }
 
@@ -132,7 +170,9 @@ function renderStats(avl) {
 
 function clearSearch() {
   lastSearchTarget = null;
+  byId('search-counts').hidden = true;
   byId('search-results').hidden = true;
+  byId('search-results').removeAttribute('aria-busy');
   byId('bst-prediction').value = '';
   byId('avl-prediction').value = '';
   status('search-status');
@@ -152,10 +192,20 @@ function updateChallenge() {
 
 function updateRun() {
   clearSearch();
+  if (runKind === 'custom') byId('search-prompt').textContent = 'Which tree will visit fewer nodes for the same price?';
   updateControls();
   renderBatch();
   updateChallenge();
-  if (growth.open) renderGrowth();
+  renderGrowth();
+  renderComparison();
+}
+
+function resetGuidedRun() {
+  rallyResult = null;
+  alternateResult = null;
+  growthSelection = null;
+  pendingRepair = null;
+  transferTrace = null;
 }
 
 function showSequence(open, mode) {
@@ -187,10 +237,9 @@ function updatePreview() {
 byId('sequence-toggle').addEventListener('click', () => showSequence(sequencePanel.hidden));
 byId('paste-mode').addEventListener('click', () => chooseSequenceMode('paste'));
 byId('generate-mode').addEventListener('click', () => chooseSequenceMode('generate'));
-byId('try-rally').addEventListener('click', () => {
-  showSequence(true, 'generate');
-  byId('rally-start').focus();
-  byId('rally-start').select();
+byId('try-rally').addEventListener('click', () => startRun('rally', RALLY_PRICES));
+byId('replay-alternate').addEventListener('click', () => {
+  if (rallyResult && runKind === 'rally') startRun('alternate', ALTERNATE_PRICES);
 });
 
 byId('paste-form').addEventListener('submit', event => {
@@ -232,17 +281,28 @@ byId('shuffle-again').addEventListener('click', () => {
   updatePreview();
 });
 
-byId('start-replay').addEventListener('click', () => {
-  if (!experiment.startReplay()) return;
+function startRun(kind, keys) {
+  if (!experiment.startReplay(keys)) return;
   cancelPlayback();
+  if (kind !== 'alternate') resetGuidedRun();
+  runKind = kind;
   showSequence(false);
   updateRun();
   renderTrees();
   views.bst.resetLayout();
   views.avl.resetLayout();
-  status('build-status', 'Replay ready. Step through the prices or press Play.');
-  byId('step').focus();
-});
+  if (kind === 'custom') {
+    status('build-status', 'Replay ready. Step through the prices or press Play.');
+    byId('step').focus();
+  } else {
+    byId('search-prompt').textContent = 'Finish the replay to search the completed trees.';
+    byId('comparison-start').scrollIntoView({ block: 'start' });
+    byId('play').focus({ preventScroll: true });
+    playBatch();
+  }
+}
+
+byId('start-replay').addEventListener('click', () => startRun('custom'));
 
 byId('insert-form').addEventListener('submit', event => {
   event.preventDefault();
@@ -260,6 +320,8 @@ byId('insert-form').addEventListener('submit', event => {
     }
     input.value = '';
     input.focus();
+    runKind = 'custom';
+    resetGuidedRun();
     play('insert', session => showInsertion(change, session.controller.signal));
   } catch (error) {
     status('build-status', error.message, 'error');
@@ -268,11 +330,16 @@ byId('insert-form').addEventListener('submit', event => {
 
 byId('step').addEventListener('click', () => {
   if (active) return;
-  const change = experiment.step();
-  if (change) play('step', session => showInsertion(change, session.controller.signal));
+  if (!availableSteps()) return;
+  play('step', async session => {
+    const { signal } = session.controller;
+    if (pendingRepair) await continueRepair(signal);
+    else await showInsertion(experiment.step(), signal);
+    if (!signal.aborted && !availableSteps()) await finishBatch(signal);
+  });
 });
 
-byId('play').addEventListener('click', () => {
+function playBatch() {
   if (active?.kind === 'batch') {
     active.pause = true;
     updateControls();
@@ -281,17 +348,54 @@ byId('play').addEventListener('click', () => {
   if (!availableSteps()) return;
   play('batch', async session => {
     const { signal } = session.controller;
-    while (!signal.aborted && !session.pause && availableSteps()) {
+    if (pendingRepair) await continueRepair(signal, true);
+    while (!signal.aborted && !session.pause && !pendingRepair && availableSteps()) {
       await showInsertion(experiment.step(), signal, true);
     }
     if (signal.aborted) return;
-    if (session.pause && availableSteps()) status('build-status', 'Replay paused.');
-    if (!availableSteps()) status('build-status', 'Replay complete. Try searching for a price.', 'success');
+    if (session.pause && !pendingRepair && availableSteps()) status('build-status', 'Replay paused.');
+    if (!availableSteps()) await finishBatch(signal);
   });
+}
+byId('play').addEventListener('click', playBatch);
+
+async function finishBatch(signal) {
+  if (runKind === 'alternate') {
+    byId('search-price').value = String(RALLY_TARGET / 100);
+    byId('search-prompt').textContent = 'The same $107 target is searched in both trees again.';
+    status('build-status', 'Different order complete. Searching for $107.', 'success');
+    await showSearch(RALLY_TARGET, { bst: null, avl: null }, signal);
+  } else if (runKind === 'rally') {
+    byId('search-price').value = String(RALLY_TARGET / 100);
+    byId('predictions').open = true;
+    byId('search-prompt').textContent = 'How many comparisons will each tree make to find $107?';
+    status('build-status', 'Rally complete. Predict the comparisons for $107.', 'success');
+  } else {
+    status('build-status', 'Replay complete. Try searching for a price.', 'success');
+  }
+}
+
+byId('predict-rally').addEventListener('click', () => {
+  byId('search-price').value = String(RALLY_TARGET / 100);
+  byId('predictions').open = true;
+  scrollBelowToolbar(byId('search-form').closest('section'));
+  byId('bst-prediction').focus({ preventScroll: true });
 });
+byId('view-comparison').addEventListener('click', () => {
+  const results = byId('comparison-results');
+  scrollBelowToolbar(results);
+  results.focus({ preventScroll: true });
+});
+
+function scrollBelowToolbar(section) {
+  const top = window.scrollY + section.getBoundingClientRect().top - toolbar.offsetHeight - 10;
+  window.scrollTo({ top });
+}
 
 byId('undo').addEventListener('click', () => {
   cancelPlayback();
+  runKind = 'custom';
+  resetGuidedRun();
   const key = experiment.undo();
   updateRun();
   renderTrees();
@@ -300,6 +404,8 @@ byId('undo').addEventListener('click', () => {
 });
 byId('clear').addEventListener('click', () => {
   cancelPlayback();
+  runKind = 'custom';
+  resetGuidedRun();
   experiment.clear();
   updateRun();
   renderTrees();
@@ -311,8 +417,12 @@ byId('clear').addEventListener('click', () => {
 
 async function showInsertion(change, signal, quick = false) {
   const { entry, bstPath, avlPath, rotation } = change;
+  const pausesForRepair = runKind === 'rally' && rotation && entry.key === RALLY_FIRST_IMBALANCE;
+  if (runKind === 'rally' && rotation && entry.key === RALLY_SUBTREE_TRANSFER) {
+    transferTrace = experiment.challenge;
+  }
   updateRun();
-  renderTrees(rotation?.before);
+  renderTrees(rotation?.before, pausesForRepair ? rotation.pivot : null);
   status('build-status', `Inserting ${formatPrice(entry.key)}`);
   if (!quick) {
     await showPaths({ bst: bstPath, avl: avlPath }, signal, false);
@@ -322,28 +432,60 @@ async function showInsertion(change, signal, quick = false) {
   views.avl.highlight(avlPath, entry.key, true);
   if (!await delay(quick ? 200 : 255, signal)) return;
 
-  if (rotation) {
-    for (const step of rotation.steps) {
-      status('build-status', `AVL · Rotate ${step.direction} at ${formatPrice(step.pivot)}`);
-      views.avl.render(step.tree, { animate: true });
-      renderStats(step.tree);
-      views.avl.highlight([step.pivot], step.promoted, true);
-      if (!await delay(quick ? 285 : 440, signal)) return;
-    }
-    views.avl.render(experiment.avl);
-    views.avl.highlight([], entry.key, true);
+  if (pausesForRepair) {
+    pendingRepair = experiment.challenge;
+    const detail = `${formatPrice(rotation.pivot)} has balance factor ${rotation.balance}. Its right child is ${formatPrice(rotation.child)}.`;
+    byId('repair-details').textContent = detail;
+    status('build-status', `Paused for AVL repair. ${detail}`);
+    views.avl.highlight([rotation.child], rotation.pivot, true);
+    views.avl.select(rotation.pivot);
+    return;
   }
+  if (rotation && !await showRotation(rotation, entry.key, signal, quick)) return;
   renderStats(experiment.avl);
   status('build-status', `Inserted ${formatPrice(entry.key)} into both trees.`, 'success');
 }
 
+async function continueRepair(signal, quick = false) {
+  const repair = pendingRepair;
+  pendingRepair = null;
+  updateControls();
+  if (await showRotation(repair, repair.key, signal, quick)) {
+    renderStats(experiment.avl);
+    status('build-status', 'AVL repaired. Both trees are ready for the next price.', 'success');
+  }
+}
+
+async function showRotation(rotation, key, signal, quick) {
+  for (const step of rotation.steps) {
+    status('build-status', `AVL · Rotate ${step.direction} at ${formatPrice(step.pivot)}`);
+    views.avl.render(step.tree, { animate: true });
+    renderStats(step.tree);
+    views.avl.highlight([step.pivot], step.promoted, true);
+    if (!await delay(quick ? 285 : 440, signal)) return false;
+  }
+  views.avl.render(experiment.avl);
+  views.avl.highlight([], key, true);
+  return true;
+}
+
 async function showPaths(paths, signal, searchAnimation) {
+  if (searchAnimation && motionSetting.checked) {
+    for (const [type, path] of Object.entries(paths)) {
+      views[type].highlight(path, path.at(-1) ?? null, true);
+      byId(`${type}-visits`).textContent = path.length;
+    }
+    return;
+  }
   const length = Math.max(paths.bst.length, paths.avl.length);
   const interval = searchAnimation ? Math.min(270, 3600 / length) : Math.min(120, 850 / length);
   for (let index = 0; index < length; index++) {
     for (const type of ['bst', 'avl']) {
       const path = paths[type];
-      if (index < path.length) views[type].highlight(path.slice(0, index + 1), path[index], true);
+      if (index < path.length) {
+        views[type].highlight(path.slice(0, index + 1), path[index], true);
+        if (searchAnimation) byId(`${type}-visits`).textContent = index + 1;
+      }
     }
     if (!await delay(interval, signal)) return;
   }
@@ -359,6 +501,7 @@ byId('suggest-price').addEventListener('click', () => {
 
 byId('search-form').addEventListener('submit', event => {
   event.preventDefault();
+  if (byId('search-submit').disabled) return;
   let target;
   const predictions = {};
   try {
@@ -377,27 +520,45 @@ byId('search-form').addEventListener('submit', event => {
     status('search-status', error.message, 'error');
     return;
   }
+  play('search', session => showSearch(target, predictions, session.controller.signal));
+});
 
+async function showSearch(target, predictions, signal) {
   const outcome = experiment.search(target);
   const paths = { bst: outcome.bst.visited, avl: outcome.avl.visited };
+  lastSearchTarget = null;
   byId('search-results').hidden = true;
-  if (paths.bst.length) document.querySelector('.tree-grid').scrollIntoView({ block: 'nearest' });
-  play('search', async session => {
-    const { signal } = session.controller;
-    renderTrees();
-    status('search-status', `Tracing the search for ${formatPrice(target)}.`);
-    await showPaths(paths, signal, true);
-    if (signal.aborted) return;
-    lastSearchTarget = target;
-    renderResults(outcome, predictions);
-    if (growth.open) renderGrowth();
-    const { bst, avl } = outcome;
-    const tally = bst.comparisons === avl.comparisons
-      ? 'Both trees visited the same number of nodes.'
-      : `${bst.comparisons < avl.comparisons ? 'The BST' : 'The AVL tree'} visited fewer nodes for this target.`;
-    status('search-status', `${formatPrice(target)} · BST: ${bst.comparisons}, AVL: ${avl.comparisons}. ${tally}`);
-  });
-});
+  byId('count-target').textContent = `Comparisons for ${formatPrice(target)}`;
+  byId('bst-visits').textContent = byId('avl-visits').textContent = '0';
+  byId('search-counts').hidden = false;
+  renderTrees();
+  if (paths.bst.length) byId('comparison-start').scrollIntoView({ block: 'start' });
+  byId('search-counts').focus({ preventScroll: true });
+  status('search-status');
+  byId('search-results').setAttribute('aria-busy', 'true');
+  if (!motionSetting.checked && paths.bst.length && !await delay(160, signal)) return;
+  await showPaths(paths, signal, true);
+  if (signal.aborted) return;
+  lastSearchTarget = target;
+  if (runKind !== 'custom' && target === RALLY_TARGET) {
+    const snapshot = {
+      order: [...experiment.batch.keys],
+      rows: experiment.summary().map(row => ({ ...row })),
+      outcome,
+    };
+    if (runKind === 'rally') rallyResult = snapshot;
+    else alternateResult = snapshot;
+    renderComparison();
+  }
+  renderResults(outcome, predictions);
+  byId('search-results').removeAttribute('aria-busy');
+  renderGrowth();
+  const { bst, avl } = outcome;
+  const tally = bst.comparisons === avl.comparisons
+    ? 'Both trees visited the same number of nodes.'
+    : `${bst.comparisons < avl.comparisons ? 'The BST' : 'The AVL tree'} visited fewer nodes for this target.`;
+  status('search-status', `${formatPrice(target)} · BST: ${bst.comparisons}, AVL: ${avl.comparisons}. ${tally}`);
+}
 
 function renderResults(outcome, predictions) {
   const results = byId('search-results');
@@ -425,20 +586,75 @@ function renderResults(outcome, predictions) {
   results.hidden = false;
 }
 
-function renderGrowth() {
-  const table = byId('growth-table');
-  table.replaceChildren();
-  const rows = experiment.summary(lastSearchTarget);
-  byId('growth-empty').hidden = Boolean(rows.length);
-  byId('growth-table-wrap').hidden = !rows.length;
-  if (!rows.length) return;
-
-  const cols = ['Nodes', 'Added price', 'BST height', 'AVL height'];
-  const includeSearch = lastSearchTarget !== null;
-  if (includeSearch) {
-    cols.push('BST comparisons', 'AVL comparisons');
-    table.createCaption().textContent = `Search target at each insertion: ${formatPrice(lastSearchTarget)}`;
+function renderComparison() {
+  byId('comparison-results').hidden = !rallyResult;
+  byId('replay-alternate').hidden = runKind !== 'rally' || !rallyResult;
+  if (!rallyResult) return;
+  const tbody = byId('comparison-rows');
+  tbody.replaceChildren();
+  for (const [label, snapshot] of [['Market rally', rallyResult], ['Different order', alternateResult]]) {
+    if (!snapshot) continue;
+    const row = tbody.insertRow();
+    const heading = document.createElement('th');
+    heading.scope = 'row';
+    heading.textContent = label;
+    heading.title = snapshot.order.map(formatPrice).join(' → ');
+    row.append(heading);
+    const { bstHeight, avlHeight } = snapshot.rows.at(-1);
+    for (const value of [bstHeight, avlHeight, snapshot.outcome.bst.comparisons, snapshot.outcome.avl.comparisons]) {
+      row.insertCell().textContent = value;
+    }
   }
+  const before = rallyResult.outcome;
+  const after = alternateResult?.outcome;
+  byId('comparison-takeaway').textContent = after
+    ? `Changing the insertion order cut the BST search from ${before.bst.comparisons} comparisons to ${after.bst.comparisons}. The AVL search took ${after.avl.comparisons} comparisons in both runs.`
+    : `Search target ${formatPrice(before.target)}. Keep the same prices and see what a different insertion order changes.`;
+}
+
+function renderGrowth({ updateTables = true } = {}) {
+  const rows = experiment.summary();
+  const comparison = runKind === 'alternate' && rallyResult;
+  const runs = comparison
+    ? [{ label: 'Market rally', rows: rallyResult.rows }, { label: 'Different order', rows }]
+    : [{ label: runKind === 'rally' ? 'Market rally' : 'Current run', rows }];
+  const count = Math.max(...runs.map(run => run.rows.length));
+  byId('growth-empty').hidden = count > 0;
+  byId('growth-data').hidden = count === 0;
+  if (!count) return;
+
+  const domain = runKind === 'custom'
+    ? { prices: count, height: Math.max(1, ...rows.flatMap(row => [row.bstHeight, row.avlHeight])) }
+    : { prices: RALLY_PRICES.length, height: RALLY_PRICES.length - 1 };
+  const selected = Math.min(growthSelection ?? count, count);
+  const cursor = byId('growth-cursor');
+  cursor.max = count;
+  cursor.value = selected;
+  cursor.disabled = count === 1;
+  cursor.setAttribute('aria-valuetext', `Insertion ${selected} of ${count}`);
+  byId('growth-position').value = `${selected} of ${count}`;
+  renderGrowthPlots(byId('growth-charts'), runs, domain, selected);
+  if (growth.open && updateTables) renderGrowthTables();
+}
+
+function renderGrowthTables() {
+  const savedRally = runKind === 'alternate' ? rallyResult : null;
+  byId('growth-rally-wrap').hidden = !savedRally;
+  if (savedRally) {
+    writeGrowthTable(byId('growth-rally-table'), savedRally.rows, 'Market rally · Heights by insertion');
+  }
+  const rows = experiment.summary(lastSearchTarget);
+  byId('growth-table-wrap').hidden = !rows.length;
+  const label = { rally: 'Market rally', alternate: 'Different order' }[runKind] ?? 'Current run';
+  writeGrowthTable(byId('growth-table'), rows, label, lastSearchTarget);
+}
+
+function writeGrowthTable(table, rows, label, target = null) {
+  table.replaceChildren();
+  if (!rows.length) return;
+  const cols = ['Nodes', 'Added price', 'BST height', 'AVL height'];
+  if (target !== null) cols.push('BST comparisons', 'AVL comparisons');
+  table.createCaption().textContent = target === null ? label : `${label} · Search target ${formatPrice(target)}`;
   const headings = table.createTHead().insertRow();
   for (const label of cols) {
     const heading = document.createElement('th');
@@ -450,13 +666,17 @@ function renderGrowth() {
   for (const [index, entry] of rows.entries()) {
     const row = body.insertRow();
     const cells = [index + 1, formatPrice(entry.key), entry.bstHeight, entry.avlHeight];
-    if (includeSearch) cells.push(entry.bstSearch, entry.avlSearch);
+    if (target !== null) cells.push(entry.bstSearch, entry.avlSearch);
     for (const text of cells) row.insertCell().textContent = text;
   }
 }
 
 growth.addEventListener('toggle', () => {
-  if (growth.open) renderGrowth();
+  if (growth.open) renderGrowthTables();
+});
+byId('growth-cursor').addEventListener('input', event => {
+  growthSelection = Number(event.target.value);
+  renderGrowth({ updateTables: false });
 });
 
 byId('rotation-prediction').addEventListener('submit', event => {
@@ -470,8 +690,16 @@ byId('rotation-prediction').addEventListener('submit', event => {
   status('rotation-feedback', `${result} ${challenge.caseName} imbalance: rotate ${explanation}.`, answer === correct ? 'success' : '');
 });
 
-byId('open-practice').addEventListener('click', () => openLab(true));
-byId('open-solution').addEventListener('click', () => openLab(false));
+byId('open-practice').addEventListener('click', event => openLab(true, { opener: event.currentTarget }));
+byId('open-solution').addEventListener('click', event => openLab(false, { opener: event.currentTarget }));
+byId('view-rally-repair').addEventListener('click', event => {
+  if (pendingRepair) openLab(false, { trace: pendingRepair, opener: event.currentTarget });
+});
+byId('review-transfer').addEventListener('click', event => {
+  if (transferTrace) openLab(false, { trace: transferTrace, opener: event.currentTarget, showTransfer: true });
+});
+byId('rotation-front').addEventListener('click', () => setRotationAngle(false));
+byId('rotation-angle').addEventListener('click', () => setRotationAngle(true));
 byId('rotate-left').addEventListener('click', () => practiceMove(practice.rotate(labView.selection, 'left')));
 byId('rotate-right').addEventListener('click', () => practiceMove(practice.rotate(labView.selection, 'right')));
 byId('undo-rotation').addEventListener('click', () => {
@@ -493,16 +721,31 @@ byId('solution-next').addEventListener('click', () => {
 labDialog.addEventListener('close', () => {
   practice = null;
   solution = null;
+  labTransfer = null;
+  if (labOpener && !labOpener.closest('[hidden]')) labOpener.focus({ preventScroll: true });
+  labOpener = null;
 });
 
-function openLab(interactive) {
-  solution = experiment.challenge;
-  if (!solution) return;
-  cancelPlayback();
-  renderTrees();
-  updateControls();
+function openLab(interactive, { trace = experiment.challenge, opener, showTransfer = false } = {}) {
+  if (!trace || labDialog.open) return;
+  solution = trace;
+  labOpener = opener;
+  if (active?.kind === 'batch') {
+    active.pause = true;
+    updateControls();
+  } else if (interactive && active) {
+    if (active.kind === 'search') clearSearch();
+    cancelPlayback();
+    renderTrees(pendingRepair?.before, pendingRepair?.pivot);
+    updateControls();
+    renderGrowth();
+  }
   practice = interactive ? new RotationPractice(solution.before) : null;
   labView.mode = interactive ? 'practice' : 'read';
+  labTransfer = showTransfer ? findTransferredBranch(solution) : null;
+  byId('rotation-views').hidden = !labTransfer || !preview3D;
+  setRotationAngle(false);
+  renderRotationKey();
   byId('lab-title').textContent = interactive ? 'Rotation practice' : 'Replay the repair';
   byId('lab-instruction').textContent = interactive
     ? 'Promote a child by dragging it onto its parent, or select a pivot and use the rotation buttons. Bring every balance factor within −1 to 1.'
@@ -518,6 +761,34 @@ function openLab(interactive) {
   } else {
     solutionIndex = 0;
     renderSolution();
+    if (labTransfer) labView.fit();
+  }
+}
+
+function findTransferredBranch(trace) {
+  const step = trace.steps[0];
+  const promoted = inOrderNodes(trace.before).find(node => node.key === step.promoted);
+  const branch = step.direction === 'left' ? promoted.left : promoted.right;
+  return branch ? { pivot: step.pivot, promoted: step.promoted, branch: branch.key } : null;
+}
+
+function setRotationAngle(angled) {
+  labHost.toggleAttribute('data-angle', angled);
+  byId('rotation-front').setAttribute('aria-pressed', !angled);
+  byId('rotation-angle').setAttribute('aria-pressed', angled);
+}
+
+function renderRotationKey() {
+  const key = byId('rotation-key');
+  key.hidden = !labTransfer;
+  key.replaceChildren();
+  if (!labTransfer) return;
+  const roles = { pivot: 'Pivot', promoted: 'Promoted node', branch: 'Moving branch' };
+  for (const [role, price] of Object.entries(labTransfer)) {
+    const label = document.createElement('li');
+    label.dataset.rotationRole = role;
+    label.textContent = `${roles[role]} ${formatPrice(price)}`;
+    key.append(label);
   }
 }
 
@@ -528,7 +799,8 @@ function updateLabButtons(node) {
 }
 
 function renderLabTree(root, animate) {
-  labView.render(root, { animate });
+  labView.render(root, { animate, compact: Boolean(labTransfer) });
+  labView.markRotation(labTransfer ?? undefined);
   byId('lab-traversal').textContent = inOrderNodes(root).map(node => formatPrice(node.key)).join(' → ');
 }
 
@@ -555,12 +827,21 @@ function renderSolution() {
   const pivot = step?.promoted ?? solution.pivot;
   renderLabTree(step?.tree ?? solution.before, Boolean(step));
   labView.highlight(step ? [step.pivot] : [], pivot, true);
-  byId('solution-back').disabled = solutionIndex === 0;
-  byId('solution-next').disabled = solutionIndex === solution.steps.length;
+  const back = byId('solution-back');
+  const next = byId('solution-next');
+  const focused = document.activeElement;
+  back.disabled = solutionIndex === 0;
+  next.disabled = solutionIndex === solution.steps.length;
+  if (focused === next && next.disabled) back.focus();
+  if (focused === back && back.disabled) next.focus();
   const action = step
     ? `Rotate ${step.direction} at ${formatPrice(step.pivot)} to promote ${formatPrice(step.promoted)}.`
     : `Before rotation, ${formatPrice(solution.pivot)} has balance factor ${solution.balance}.`;
-  status('lab-status', `Frame ${solutionIndex + 1} of ${solution.steps.length + 1}. ${action}`);
+  const onRight = (solution.steps[0]?.direction === 'left') === Boolean(step);
+  const transfer = labTransfer
+    ? ` The branch rooted at ${formatPrice(labTransfer.branch)} is the ${onRight ? 'right' : 'left'} child of ${formatPrice(step ? labTransfer.pivot : labTransfer.promoted)}.`
+    : '';
+  status('lab-status', `Frame ${solutionIndex + 1} of ${solution.steps.length + 1}. ${action}${transfer}`);
 }
 
 renderTrees();
