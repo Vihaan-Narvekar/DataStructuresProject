@@ -229,7 +229,7 @@
           <div class="growth-legend" aria-label="Chart legend"><span class="legend-bst">Ordinary BST</span><span class="legend-avl">AVL tree</span></div>
           <div id="growth-charts" class="growth-charts"></div>
           <div class="growth-inspect">
-            <label for="growth-cursor">Inspect insertion <output id="growth-position" for="growth-cursor"></output></label>
+            <label for="growth-cursor">Select a point or move the slider <output id="growth-position" for="growth-cursor"></output></label>
             <input id="growth-cursor" type="range" min="1" max="1" value="1">
           </div>
           <details id="growth">
@@ -274,6 +274,26 @@
         <button type="button" id="rotation-angle" aria-pressed="false">3D preview</button>
       </div>
       <div id="lab-view" class="avl-panel"></div>
+      <section id="lab-3d" class="orbit-view" aria-label="3D rotation preview" hidden>
+        <div class="orbit-stage" tabindex="0" role="group" aria-label="Interactive 3D tree" aria-describedby="orbit-help">
+          <svg viewBox="0 0 500 330" role="group" aria-label="Rotation tree"></svg>
+        </div>
+        <div class="orbit-toolbar" role="group" aria-label="Camera controls">
+          <div class="button-row">
+            <button type="button" class="button outlined" data-orbit="left" aria-label="Orbit left">←</button>
+            <button type="button" class="button outlined" data-orbit="right" aria-label="Orbit right">→</button>
+            <button type="button" class="button outlined" data-orbit="up" aria-label="Orbit up">↑</button>
+            <button type="button" class="button outlined" data-orbit="down" aria-label="Orbit down">↓</button>
+          </div>
+          <div class="button-row">
+            <button type="button" class="button outlined" data-orbit="farther" aria-label="Zoom out">−</button>
+            <button type="button" class="button outlined" data-orbit="nearer" aria-label="Zoom in">+</button>
+            <button type="button" class="button quiet" data-orbit="reset">Reset view</button>
+          </div>
+        </div>
+        <p id="orbit-help">Drag or use the arrow keys to orbit. Select a node to inspect it.</p>
+        <p class="orbit-inspector" role="status"></p>
+      </section>
       <ul class="rotation-key" id="rotation-key" aria-label="Highlighted rotation nodes" hidden></ul>
       <div class="button-row lab-actions" id="practice-actions">
         <button type="button" class="button outlined" id="rotate-left">Rotate left</button>

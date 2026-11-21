@@ -18,8 +18,8 @@ Open [the local lesson](http://127.0.0.1:8000/). All prices and results are proc
 
 1. Select **Run the rally**. Both trees insert $100, $101, and $102, then pause at the first AVL imbalance. Select **View the repair** to inspect it, **Step through repair** to apply just the rotation, or **Play** to repair the tree and continue through $107.
 2. Select **Predict $107** and submit the search. Watch the comparison counters advance as the two trees visit their nodes.
-3. Select **Replay with a different order**. The same eight keys are inserted in a fixed alternate order, then the lesson searches for $107 again. Use **Compare results** to see both runs together. Move the slider under **Compare as the trees grow** to inspect the same insertion in both runs.
-4. Select **Review subtree transfer** to see what happens to the branch rooted at $102 after the sixth rally insertion. To try the classmate-test version with a 3D toggle, open [`docs/index.html?preview=3d`](docs/index.html?preview=3d) locally or add `?preview=3d` to the lesson URL.
+3. Select **Replay with a different order**. The same eight keys are inserted in a fixed alternate order, then the lesson searches for $107 again. Use **Compare results** to see both runs together. Click or tap the growth chart, or move its slider, to inspect the same insertion in both runs.
+4. Select **Review subtree transfer** to see what happens to the branch rooted at $102 after the sixth rally insertion. Add `?preview=3d` to the lesson URL to enable **3D preview**. Drag or use the arrow controls to orbit, zoom with **−** and **+**, and select a node to see its balance factor, parent, and children. **Next frame** keeps your viewing angle and updates the selected node as the tree rotates.
 
 ## Try your own prices
 

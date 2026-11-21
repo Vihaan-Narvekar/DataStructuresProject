@@ -16,7 +16,7 @@ function ticks(first, last, interval) {
   return values;
 }
 
-function makePlot(rows, maxPrices, maxHeight, selected) {
+function makePlot(rows, maxPrices, maxHeight, selected, onSelect) {
   const svg = svgElement('svg', { viewBox: '0 0 400 190', 'aria-hidden': 'true' });
   const x = count => 36 + 347 * (count - 1) / Math.max(1, maxPrices - 1);
   const y = height => 146 - 116 * height / Math.max(1, maxHeight);
@@ -55,10 +55,16 @@ function makePlot(rows, maxPrices, maxHeight, selected) {
         : svgElement('rect', { x: cx - 3, y: cy - 3, width: 6, height: 6, class: 'growth-marker avl-marker' }));
     }
   }
+  const plotArea = svgElement('rect', { x: 36, y: 21, width: 347, height: 128, class: 'growth-hit-area' });
+  plotArea.addEventListener('click', event => {
+    const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+    onSelect(1 + Math.round((point.x - 36) * (maxPrices - 1) / 347));
+  });
+  svg.append(plotArea);
   return svg;
 }
 
-export function renderGrowthPlots(host, runs, domain, selected) {
+export function renderGrowthPlots(host, runs, domain, selected, onSelect) {
   host.replaceChildren(...runs.map(({ label, rows }) => {
     const figure = document.createElement('figure');
     const caption = document.createElement('figcaption');
@@ -69,7 +75,7 @@ export function renderGrowthPlots(host, runs, domain, selected) {
     readout.textContent = row
       ? `${formatPrice(row.key)} inserted · BST height ${row.bstHeight} · AVL height ${row.avlHeight}`
       : `Insertion ${selected} is still ahead in this order.`;
-    figure.append(caption, makePlot(rows, domain.prices, domain.height, selected), readout);
+    figure.append(caption, makePlot(rows, domain.prices, domain.height, selected, onSelect), readout);
     return figure;
   }));
 }

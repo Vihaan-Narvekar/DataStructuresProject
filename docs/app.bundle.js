@@ -343,7 +343,7 @@
     if (last > first) values.push(last);
     return values;
   }
-  function makePlot(rows, maxPrices, maxHeight, selected) {
+  function makePlot(rows, maxPrices, maxHeight, selected, onSelect) {
     const svg = svgElement("svg", { viewBox: "0 0 400 190", "aria-hidden": "true" });
     const x = (count) => 36 + 347 * (count - 1) / Math.max(1, maxPrices - 1);
     const y = (height2) => 146 - 116 * height2 / Math.max(1, maxHeight);
@@ -378,9 +378,15 @@
         svg.append(type === "bst" ? svgElement("circle", { cx, cy, r: 5, class: "growth-marker bst-marker" }) : svgElement("rect", { x: cx - 3, y: cy - 3, width: 6, height: 6, class: "growth-marker avl-marker" }));
       }
     }
+    const plotArea = svgElement("rect", { x: 36, y: 21, width: 347, height: 128, class: "growth-hit-area" });
+    plotArea.addEventListener("click", (event) => {
+      const point = new DOMPoint(event.clientX, event.clientY).matrixTransform(svg.getScreenCTM().inverse());
+      onSelect(1 + Math.round((point.x - 36) * (maxPrices - 1) / 347));
+    });
+    svg.append(plotArea);
     return svg;
   }
-  function renderGrowthPlots(host, runs, domain, selected) {
+  function renderGrowthPlots(host, runs, domain, selected, onSelect) {
     host.replaceChildren(...runs.map(({ label, rows }) => {
       const figure = document.createElement("figure");
       const caption = document.createElement("figcaption");
@@ -389,7 +395,7 @@
       caption.textContent = label;
       readout.className = "growth-readout";
       readout.textContent = row ? `${formatPrice(row.key)} inserted \xB7 BST height ${row.bstHeight} \xB7 AVL height ${row.avlHeight}` : `Insertion ${selected} is still ahead in this order.`;
-      figure.append(caption, makePlot(rows, domain.prices, domain.height, selected), readout);
+      figure.append(caption, makePlot(rows, domain.prices, domain.height, selected, onSelect), readout);
       return figure;
     }));
   }
@@ -401,14 +407,259 @@
   var RALLY_FIRST_IMBALANCE = RALLY_PRICES[2];
   var RALLY_SUBTREE_TRANSFER = RALLY_PRICES[5];
 
+  // docs/js/rotation-scene.js
+  var defaultCamera = { yaw: -0.46, pitch: 0.27, zoom: 1 };
+  var corners = [
+    [-17, -17, -17],
+    [17, -17, -17],
+    [17, 17, -17],
+    [-17, 17, -17],
+    [-17, -17, 17],
+    [17, -17, 17],
+    [17, 17, 17],
+    [-17, 17, 17]
+  ];
+  var faces = [
+    [0, 1, 2, 3],
+    [4, 5, 6, 7],
+    [0, 3, 7, 4],
+    [1, 2, 6, 5],
+    [3, 2, 6, 7],
+    [0, 1, 5, 4]
+  ];
+  function clamp(value, min, max) {
+    return Math.max(min, Math.min(max, value));
+  }
+  function svgElement2(tag, attributes = {}) {
+    const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
+    for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+    return element;
+  }
+  function layoutRotationTree(root) {
+    const ordered = inOrderNodes(root);
+    const ranks = new Map(ordered.map((node, index) => [node.key, index]));
+    const levels = (root?.height ?? 0) / 2;
+    const nodes = /* @__PURE__ */ new Map();
+    function visit(node, parent, level, z) {
+      if (!node) return;
+      const x = (ranks.get(node.key) - (ordered.length - 1) / 2) * 64;
+      nodes.set(node.key, { node, parent, center: [x, (levels - level) * 70, z] });
+      const separation = Math.max(24, 56 - 10 * level);
+      visit(node.left, node.key, level + 1, z - separation);
+      visit(node.right, node.key, level + 1, z + separation);
+    }
+    visit(root, null, 0, 0);
+    return nodes;
+  }
+  function rotationProjection({ yaw, pitch, zoom }) {
+    const cosYaw = Math.cos(yaw);
+    const sinYaw = Math.sin(yaw);
+    const cosPitch = Math.cos(pitch);
+    const sinPitch = Math.sin(pitch);
+    return ([x, y, z]) => {
+      const horizontal = x * cosYaw - z * sinYaw;
+      const rotatedZ = x * sinYaw + z * cosYaw;
+      const vertical = y * cosPitch - rotatedZ * sinPitch;
+      const depth = y * sinPitch + rotatedZ * cosPitch;
+      const scale = 640 * zoom / (760 - depth);
+      return { x: 250 + horizontal * scale, y: 152 - vertical * scale, depth };
+    };
+  }
+  var RotationScene = class {
+    constructor(host) {
+      this.stage = host.querySelector(".orbit-stage");
+      this.svg = this.stage.querySelector("svg");
+      this.inspector = host.querySelector(".orbit-inspector");
+      this.geometry = svgElement2("g", { "aria-hidden": "true" });
+      this.labels = svgElement2("g", { role: "group", "aria-label": "Selectable tree nodes" });
+      this.svg.append(this.geometry, this.labels);
+      this.nodes = /* @__PURE__ */ new Map();
+      this.points = /* @__PURE__ */ new Map();
+      this.controls = /* @__PURE__ */ new Map();
+      this.reset();
+      const moves = {
+        left: [-0.22, 0, 0],
+        right: [0.22, 0, 0],
+        up: [0, 0.18, 0],
+        down: [0, -0.18, 0],
+        nearer: [0, 0, 0.14],
+        farther: [0, 0, -0.14]
+      };
+      host.addEventListener("click", (event) => {
+        const action = event.target.closest("[data-orbit]")?.dataset.orbit;
+        if (action === "reset") {
+          this.camera = { ...defaultCamera };
+          this.draw();
+        } else if (moves[action]) {
+          this.move(...moves[action]);
+        }
+      });
+      this.stage.addEventListener("pointerdown", (event) => this.startDrag(event));
+      this.stage.addEventListener("pointermove", (event) => this.dragCamera(event));
+      for (const type of ["pointerup", "pointercancel", "lostpointercapture"]) {
+        this.stage.addEventListener(type, (event) => {
+          if (type === "lostpointercapture" && event.target !== this.stage) return;
+          if (this.drag?.id !== event.pointerId) return;
+          this.drag = null;
+          this.stage.classList.remove("is-orbiting");
+        });
+      }
+      this.stage.addEventListener("click", (event) => {
+        const key = event.target.closest("[data-scene-key]")?.dataset.sceneKey;
+        if (key !== void 0 && !this.dragged) this.select(Number(key));
+      });
+      this.stage.addEventListener("keydown", (event) => {
+        const direction = { ArrowLeft: "left", ArrowRight: "right", ArrowUp: "up", ArrowDown: "down", "+": "nearer", "-": "farther" }[event.key];
+        const key = event.target.dataset.sceneKey;
+        if (direction) {
+          event.preventDefault();
+          this.move(...moves[direction]);
+        } else if (key !== void 0 && (event.key === "Enter" || event.key === " ")) {
+          event.preventDefault();
+          this.select(Number(key));
+        }
+      });
+    }
+    reset() {
+      cancelAnimationFrame(this.frame);
+      this.drag = null;
+      this.dragged = false;
+      this.selected = null;
+      this.camera = { ...defaultCamera };
+      this.stage.classList.remove("is-orbiting");
+    }
+    startDrag(event) {
+      if (!event.isPrimary || event.button !== 0) return;
+      const { pointerId: id, clientX: x, clientY: y } = event;
+      this.drag = { id, x, y, ...this.camera };
+      this.dragged = false;
+    }
+    dragCamera(event) {
+      const drag = this.drag;
+      if (!drag || drag.id !== event.pointerId) return;
+      const dx = event.clientX - drag.x;
+      const dy = event.clientY - drag.y;
+      if (!this.dragged) {
+        if (Math.hypot(dx, dy) < 5) return;
+        this.stage.setPointerCapture(drag.id);
+        this.stage.classList.add("is-orbiting");
+        this.dragged = true;
+      }
+      this.camera.yaw = (drag.yaw + dx * 0.012) % (2 * Math.PI);
+      this.camera.pitch = clamp(drag.pitch + dy * 0.01, -1.05, 1.05);
+      this.draw();
+    }
+    move(yaw, pitch, zoom) {
+      this.camera.yaw = (this.camera.yaw + yaw) % (2 * Math.PI);
+      this.camera.pitch = clamp(this.camera.pitch + pitch, -1.05, 1.05);
+      this.camera.zoom = clamp(this.camera.zoom + zoom, 0.72, 1.42);
+      this.draw();
+    }
+    render(root, roles, animate) {
+      cancelAnimationFrame(this.frame);
+      this.nodes = layoutRotationTree(root);
+      this.roles = new Map(Object.entries(roles).map(([role, key]) => [key, role]));
+      for (const [key, control] of this.controls) {
+        if (this.nodes.has(key)) continue;
+        control.remove();
+        this.controls.delete(key);
+      }
+      for (const key of [...this.nodes.keys()].sort((a, b) => a - b)) {
+        if (this.controls.has(key)) continue;
+        const label = svgElement2("g", { class: "orbit-node", tabindex: "0", role: "button", "data-scene-key": key });
+        const text = svgElement2("text", { y: -23 });
+        text.textContent = formatPrice(key);
+        label.append(svgElement2("circle", { r: 22, class: "orbit-node-hit" }), text);
+        this.labels.append(label);
+        this.controls.set(key, label);
+      }
+      if (!this.nodes.has(this.selected)) this.selected = roles.branch;
+      this.updateSelection();
+      const start = this.points;
+      const finish = new Map([...this.nodes].map(([key, { center }]) => [key, center]));
+      if (!animate || document.documentElement.hasAttribute("data-reduce-motion") || !start.size) {
+        this.points = finish;
+        this.draw();
+        return;
+      }
+      const began = performance.now();
+      const frame = (now) => {
+        const progress = Math.min(1, (now - began) / 280);
+        const eased = 1 - (1 - progress) ** 3;
+        this.points = new Map([...finish].map(([key, to]) => {
+          const from = start.get(key) ?? to;
+          return [key, to.map((value, i) => from[i] + (value - from[i]) * eased)];
+        }));
+        this.draw();
+        if (progress < 1) this.frame = requestAnimationFrame(frame);
+      };
+      this.frame = requestAnimationFrame(frame);
+    }
+    select(key) {
+      this.selected = key;
+      this.updateSelection();
+      this.draw();
+    }
+    updateSelection() {
+      for (const [key, label] of this.controls) {
+        const { node: node2 } = this.nodes.get(key);
+        label.setAttribute("aria-label", `${formatPrice(key)}, height ${node2.height}, balance factor ${balance(node2)}`);
+        label.setAttribute("aria-pressed", key === this.selected);
+      }
+      const { node, parent } = this.nodes.get(this.selected);
+      const link = (key) => key == null ? "none" : formatPrice(key);
+      this.inspector.textContent = `${formatPrice(node.key)} \xB7 Height ${node.height} \xB7 Balance factor ${balance(node)} \xB7 Parent ${parent == null ? "none (root)" : formatPrice(parent)} \xB7 Left ${link(node.left?.key)} \xB7 Right ${link(node.right?.key)}`;
+    }
+    draw() {
+      const project = rotationProjection(this.camera);
+      const floor = [];
+      for (let coordinate = -200; coordinate <= 200; coordinate += 40) {
+        floor.push(this.line(project([-200, -138, coordinate]), project([200, -138, coordinate]), "orbit-grid"));
+        floor.push(this.line(project([coordinate, -138, -200]), project([coordinate, -138, 200]), "orbit-grid"));
+      }
+      const links = [];
+      const surfaces = [];
+      for (const [key, point] of this.points) {
+        const center = project(point);
+        const { parent } = this.nodes.get(key);
+        const role = this.roles.get(key) ?? "regular";
+        const label = this.controls.get(key);
+        label.setAttribute("transform", `translate(${center.x} ${center.y})`);
+        if (parent !== null) {
+          const link = this.line(project(this.points.get(parent)), center, "orbit-link", {
+            "data-scene-parent": parent,
+            "data-scene-child": key
+          });
+          link.classList.toggle("is-branch", role === "branch");
+          link.classList.toggle("is-connected", this.selected === parent || this.selected === key);
+          links.push(link);
+        }
+        const vertices = corners.map((corner) => project(point.map((value, i) => value + corner[i])));
+        for (const [index, indices] of faces.entries()) {
+          const face = indices.map((i) => vertices[i]);
+          const points = face.map((vertex) => `${vertex.x},${vertex.y}`).join(" ");
+          surfaces.push({
+            depth: face.reduce((sum, vertex) => sum + vertex.depth, 0) / face.length,
+            polygon: svgElement2("polygon", { points, class: `orbit-face face-${index}`, "data-role": role })
+          });
+        }
+      }
+      surfaces.sort((a, b) => a.depth - b.depth);
+      this.geometry.replaceChildren(...floor, ...links, ...surfaces.map(({ polygon }) => polygon));
+    }
+    line(start, end, className, attributes = {}) {
+      return svgElement2("line", { x1: start.x, y1: start.y, x2: end.x, y2: end.y, class: className, ...attributes });
+    }
+  };
+
   // docs/js/tree-view.js
   var SVG = "http://www.w3.org/2000/svg";
   var NODE_HEIGHT = 34;
   var LEVEL_GAP = 59;
   var MOVE_STEP = 15;
   var directions = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
-  var clamp = (value, low, high) => Math.max(low, Math.min(value, high));
-  function svgElement2(tag, attributes = {}) {
+  var clamp2 = (value, low, high) => Math.max(low, Math.min(value, high));
+  function svgElement3(tag, attributes = {}) {
     const element = document.createElementNS(SVG, tag);
     for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
     return element;
@@ -459,9 +710,9 @@
       this.inspector = host.querySelector(".tree-inspector");
       this.moveTools = host.querySelector(".move-tools");
       this.resetButton = host.querySelector("[data-reset]");
-      this.svg = svgElement2("svg", { class: "tree-svg", role: "group", "aria-label": label });
-      this.edgeLayer = svgElement2("g", { "aria-hidden": "true" });
-      this.nodeLayer = svgElement2("g");
+      this.svg = svgElement3("svg", { class: "tree-svg", role: "group", "aria-label": label });
+      this.edgeLayer = svgElement3("g", { "aria-hidden": "true" });
+      this.nodeLayer = svgElement3("g");
       this.svg.append(this.edgeLayer, this.nodeLayer);
       this.canvas.append(this.svg);
       this.tools.addEventListener("click", (event) => {
@@ -529,7 +780,7 @@
       for (const item of this.data) {
         this.updateNode(item);
         if (item.parent === void 0 || this.edges.has(item.key)) continue;
-        const line = svgElement2("line", { class: "tree-edge", "data-parent": item.parent, "data-child": item.key });
+        const line = svgElement3("line", { class: "tree-edge", "data-parent": item.parent, "data-child": item.key });
         this.edges.set(item.key, line);
         this.edgeLayer.append(line);
       }
@@ -544,11 +795,11 @@
     updateNode({ key, factor, width, node }) {
       let group = this.nodes.get(key);
       if (!group) {
-        group = svgElement2("g", { class: "node", role: "button", "data-key": key, tabindex: "-1" });
+        group = svgElement3("g", { class: "node", role: "button", "data-key": key, tabindex: "-1" });
         group.append(
-          svgElement2("rect", { class: "node-shape", rx: 9, height: NODE_HEIGHT, y: -NODE_HEIGHT / 2 }),
-          svgElement2("text", { class: "node-key" }),
-          svgElement2("text", { class: "node-factor", y: 8 })
+          svgElement3("rect", { class: "node-shape", rx: 9, height: NODE_HEIGHT, y: -NODE_HEIGHT / 2 }),
+          svgElement3("text", { class: "node-key" }),
+          svgElement3("text", { class: "node-factor", y: 8 })
         );
         this.nodes.set(key, group);
         this.nodeLayer.append(group);
@@ -603,8 +854,8 @@
         const offset = this.offsets.get(key) ?? { x: 0, y: 0 };
         const half = this.byKey.get(key).width / 2 + 3;
         return [key, {
-          x: clamp(anchor.x + offset.x, half, this.width - half),
-          y: clamp(anchor.y + offset.y, NODE_HEIGHT / 2 + 3, this.height - NODE_HEIGHT / 2 - 3)
+          x: clamp2(anchor.x + offset.x, half, this.width - half),
+          y: clamp2(anchor.y + offset.y, NODE_HEIGHT / 2 + 3, this.height - NODE_HEIGHT / 2 - 3)
         }];
       }));
     }
@@ -668,7 +919,7 @@
       if (y + padding > canvas.scrollTop + canvas.clientHeight) canvas.scrollTop = y + padding - canvas.clientHeight;
     }
     setZoom(zoom) {
-      this.zoom = clamp(zoom, 0.15, 1.8);
+      this.zoom = clamp2(zoom, 0.15, 1.8);
       this.zoomLabel.value = `${Math.round(this.zoom * 100)}%`;
       this.layout();
       if (this.selection !== null) this.ensureVisible(this.selection);
@@ -701,7 +952,7 @@
         return;
       }
       const index = this.data.findIndex((node) => node.key === key);
-      const next = this.data[clamp(index + direction[0] + direction[1], 0, this.data.length - 1)].key;
+      const next = this.data[clamp2(index + direction[0] + direction[1], 0, this.data.length - 1)].key;
       this.select(next);
       this.nodes.get(next).focus({ preventScroll: true });
       this.ensureVisible(next);
@@ -717,8 +968,8 @@
       const point = this.anchors.get(key);
       const half = this.byKey.get(key).width / 2 + 3;
       this.offsets.set(key, {
-        x: clamp(x, half, this.width - half) - point.x,
-        y: clamp(y, NODE_HEIGHT / 2 + 3, this.height - NODE_HEIGHT / 2 - 3) - point.y
+        x: clamp2(x, half, this.width - half) - point.x,
+        y: clamp2(y, NODE_HEIGHT / 2 + 3, this.height - NODE_HEIGHT / 2 - 3) - point.y
       });
       this.paint(this.positions());
     }
@@ -794,6 +1045,8 @@
   var toolbar = document.querySelector(".comparison-toolbar");
   var labDialog = byId("lab-dialog");
   var labHost = byId("lab-view");
+  var orbitHost = byId("lab-3d");
+  var rotationScene = new RotationScene(orbitHost);
   var preview3D = new URLSearchParams(location.search).get("preview") === "3d";
   var labView = new TreeView(labHost, {
     label: "Rotation exercise tree",
@@ -1350,7 +1603,7 @@
     cursor.disabled = count === 1;
     cursor.setAttribute("aria-valuetext", `Insertion ${selected} of ${count}`);
     byId("growth-position").value = `${selected} of ${count}`;
-    renderGrowthPlots(byId("growth-charts"), runs, domain, selected);
+    renderGrowthPlots(byId("growth-charts"), runs, domain, selected, inspectGrowth);
     if (growth.open && updateTables) renderGrowthTables();
   }
   function renderGrowthTables() {
@@ -1388,10 +1641,11 @@
   growth.addEventListener("toggle", () => {
     if (growth.open) renderGrowthTables();
   });
-  byId("growth-cursor").addEventListener("input", (event) => {
-    growthSelection = Number(event.target.value);
+  function inspectGrowth(insertion) {
+    growthSelection = Math.min(insertion, Number(byId("growth-cursor").max));
     renderGrowth({ updateTables: false });
-  });
+  }
+  byId("growth-cursor").addEventListener("input", (event) => inspectGrowth(Number(event.target.value)));
   byId("rotation-prediction").addEventListener("submit", (event) => {
     event.preventDefault();
     const challenge = experiment.challenge;
@@ -1434,6 +1688,7 @@
     practice = null;
     solution = null;
     labTransfer = null;
+    rotationScene.reset();
     if (labOpener && !labOpener.closest("[hidden]")) labOpener.focus({ preventScroll: true });
     labOpener = null;
   });
@@ -1480,9 +1735,11 @@
     return branch ? { pivot: step.pivot, promoted: step.promoted, branch: branch.key } : null;
   }
   function setRotationAngle(angled) {
-    labHost.toggleAttribute("data-angle", angled);
+    labHost.hidden = angled;
+    orbitHost.hidden = !angled;
     byId("rotation-front").setAttribute("aria-pressed", !angled);
     byId("rotation-angle").setAttribute("aria-pressed", angled);
+    if (angled) rotationScene.render(solution.steps[solutionIndex - 1]?.tree ?? solution.before, labTransfer, false);
   }
   function renderRotationKey() {
     const key = byId("rotation-key");
@@ -1505,6 +1762,7 @@
   function renderLabTree(root, animate) {
     labView.render(root, { animate, compact: Boolean(labTransfer) });
     labView.markRotation(labTransfer ?? void 0);
+    if (!orbitHost.hidden) rotationScene.render(root, labTransfer, animate);
     byId("lab-traversal").textContent = inOrderNodes(root).map((node) => formatPrice(node.key)).join(" \u2192 ");
   }
   function renderPractice(action = "", animate = false) {

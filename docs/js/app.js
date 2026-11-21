@@ -2,6 +2,7 @@ import { Experiment, MAX_PRICES, RotationPractice } from './experiment.js';
 import { renderGrowthPlots } from './growth-view.js';
 import { formatPrice, generatePrices, parsePrice, parseSequence } from './prices.js';
 import { ALTERNATE_PRICES, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_SUBTREE_TRANSFER, RALLY_TARGET } from './rally.js';
+import { RotationScene } from './rotation-scene.js';
 import { balance, height, inOrderNodes } from './trees.js';
 import { TreeView } from './tree-view.js';
 
@@ -17,6 +18,8 @@ const growth = byId('growth');
 const toolbar = document.querySelector('.comparison-toolbar');
 const labDialog = byId('lab-dialog');
 const labHost = byId('lab-view');
+const orbitHost = byId('lab-3d');
+const rotationScene = new RotationScene(orbitHost);
 const preview3D = new URLSearchParams(location.search).get('preview') === '3d';
 const labView = new TreeView(labHost, {
   label: 'Rotation exercise tree',
@@ -633,7 +636,7 @@ function renderGrowth({ updateTables = true } = {}) {
   cursor.disabled = count === 1;
   cursor.setAttribute('aria-valuetext', `Insertion ${selected} of ${count}`);
   byId('growth-position').value = `${selected} of ${count}`;
-  renderGrowthPlots(byId('growth-charts'), runs, domain, selected);
+  renderGrowthPlots(byId('growth-charts'), runs, domain, selected, inspectGrowth);
   if (growth.open && updateTables) renderGrowthTables();
 }
 
@@ -674,10 +677,11 @@ function writeGrowthTable(table, rows, label, target = null) {
 growth.addEventListener('toggle', () => {
   if (growth.open) renderGrowthTables();
 });
-byId('growth-cursor').addEventListener('input', event => {
-  growthSelection = Number(event.target.value);
+function inspectGrowth(insertion) {
+  growthSelection = Math.min(insertion, Number(byId('growth-cursor').max));
   renderGrowth({ updateTables: false });
-});
+}
+byId('growth-cursor').addEventListener('input', event => inspectGrowth(Number(event.target.value)));
 
 byId('rotation-prediction').addEventListener('submit', event => {
   event.preventDefault();
@@ -722,6 +726,7 @@ labDialog.addEventListener('close', () => {
   practice = null;
   solution = null;
   labTransfer = null;
+  rotationScene.reset();
   if (labOpener && !labOpener.closest('[hidden]')) labOpener.focus({ preventScroll: true });
   labOpener = null;
 });
@@ -773,9 +778,11 @@ function findTransferredBranch(trace) {
 }
 
 function setRotationAngle(angled) {
-  labHost.toggleAttribute('data-angle', angled);
+  labHost.hidden = angled;
+  orbitHost.hidden = !angled;
   byId('rotation-front').setAttribute('aria-pressed', !angled);
   byId('rotation-angle').setAttribute('aria-pressed', angled);
+  if (angled) rotationScene.render(solution.steps[solutionIndex - 1]?.tree ?? solution.before, labTransfer, false);
 }
 
 function renderRotationKey() {
@@ -801,6 +808,7 @@ function updateLabButtons(node) {
 function renderLabTree(root, animate) {
   labView.render(root, { animate, compact: Boolean(labTransfer) });
   labView.markRotation(labTransfer ?? undefined);
+  if (!orbitHost.hidden) rotationScene.render(root, labTransfer, animate);
   byId('lab-traversal').textContent = inOrderNodes(root).map(node => formatPrice(node.key)).join(' → ');
 }
 
