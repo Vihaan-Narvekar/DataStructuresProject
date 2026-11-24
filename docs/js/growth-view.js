@@ -1,5 +1,12 @@
 import { formatPrice } from './prices.js';
 
+export function withVisibleAvlHeight(rows, avlHeight) {
+  const latest = rows.at(-1);
+  // Earlier points record completed insertions. The latest point follows the visible rotation frame.
+  if (!latest || latest.avlHeight === avlHeight) return rows;
+  return [...rows.slice(0, -1), { ...latest, avlHeight }];
+}
+
 function svgElement(tag, attributes, content) {
   const element = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
@@ -35,12 +42,12 @@ function makePlot(rows, maxPrices, maxHeight, selected, onSelect) {
   svg.append(
     svgElement('text', { x: 16, y: 15, class: 'growth-axis-title' }, 'Height in edges'),
     svgElement('text', { x: 210, y: 183, 'text-anchor': 'middle', class: 'growth-axis-title' }, 'Prices inserted'),
-    svgElement('line', { x1: x(selected), x2: x(selected), y1: 24, y2: 146, class: 'growth-guide' }),
   );
+  if (!rows.length) return svg;
+  svg.append(svgElement('line', { x1: x(selected), x2: x(selected), y1: 24, y2: 146, class: 'growth-guide' }));
 
   for (const type of ['bst', 'avl']) {
     const field = `${type}Height`;
-    if (!rows.length) continue;
     svg.append(svgElement('polyline', {
       points: rows.map((row, index) => `${x(index + 1)},${y(row[field])}`).join(' '),
       class: `growth-line ${type}-line`,
@@ -72,6 +79,7 @@ export function renderGrowthPlots(host, runs, domain, selected, onSelect) {
     const row = rows[selected - 1];
     caption.textContent = label;
     readout.className = 'growth-readout';
+    readout.hidden = !rows.length;
     readout.textContent = row
       ? `${formatPrice(row.key)} inserted · BST height ${row.bstHeight} · AVL height ${row.avlHeight}`
       : `Insertion ${selected} is still ahead in this order.`;

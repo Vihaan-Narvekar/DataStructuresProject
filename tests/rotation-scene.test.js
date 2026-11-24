@@ -1,12 +1,10 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { buildRallyExample, RALLY_PRICES, RALLY_SUBTREE_TRANSFER } from '../docs/js/rally.js';
+import { buildExampleRotation, RALLY_SUBTREE_TRANSFER } from '../docs/js/rally.js';
 import { layoutRotationTree, rotationProjection } from '../docs/js/rotation-scene.js';
 
 test('the rotation scene uses spatial coordinates and follows the transferred branch', () => {
-  const { rows, transfer } = buildRallyExample();
-  assert.deepEqual(rows.map(({ key }) => key), RALLY_PRICES);
-  assert.deepEqual([rows.at(-1).bstHeight, rows.at(-1).avlHeight], [7, 3]);
+  const transfer = buildExampleRotation();
   assert.equal(transfer.key, RALLY_SUBTREE_TRANSFER);
   const before = layoutRotationTree(transfer.before);
   const after = layoutRotationTree(transfer.steps[0].tree);

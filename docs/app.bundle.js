@@ -329,6 +329,11 @@
   };
 
   // docs/js/growth-view.js
+  function withVisibleAvlHeight(rows, avlHeight) {
+    const latest = rows.at(-1);
+    if (!latest || latest.avlHeight === avlHeight) return rows;
+    return [...rows.slice(0, -1), { ...latest, avlHeight }];
+  }
   function svgElement(tag, attributes, content) {
     const element = document.createElementNS("http://www.w3.org/2000/svg", tag);
     for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
@@ -360,12 +365,12 @@
     }
     svg.append(
       svgElement("text", { x: 16, y: 15, class: "growth-axis-title" }, "Height in edges"),
-      svgElement("text", { x: 210, y: 183, "text-anchor": "middle", class: "growth-axis-title" }, "Prices inserted"),
-      svgElement("line", { x1: x(selected), x2: x(selected), y1: 24, y2: 146, class: "growth-guide" })
+      svgElement("text", { x: 210, y: 183, "text-anchor": "middle", class: "growth-axis-title" }, "Prices inserted")
     );
+    if (!rows.length) return svg;
+    svg.append(svgElement("line", { x1: x(selected), x2: x(selected), y1: 24, y2: 146, class: "growth-guide" }));
     for (const type of ["bst", "avl"]) {
       const field = `${type}Height`;
-      if (!rows.length) continue;
       svg.append(svgElement("polyline", {
         points: rows.map((row, index) => `${x(index + 1)},${y(row[field])}`).join(" "),
         class: `growth-line ${type}-line`
@@ -394,6 +399,7 @@
       const row = rows[selected - 1];
       caption.textContent = label;
       readout.className = "growth-readout";
+      readout.hidden = !rows.length;
       readout.textContent = row ? `${formatPrice(row.key)} inserted \xB7 BST height ${row.bstHeight} \xB7 AVL height ${row.avlHeight}` : `Insertion ${selected} is still ahead in this order.`;
       figure.append(caption, makePlot(rows, domain.prices, domain.height, selected, onSelect), readout);
       return figure;
@@ -418,15 +424,14 @@
     }
     return order;
   }
-  function buildRallyExample() {
+  function buildExampleRotation() {
     const rally = new Experiment();
     rally.startReplay(RALLY_PRICES);
-    let transfer;
     for (const key of RALLY_PRICES) {
       rally.step();
-      if (key === RALLY_SUBTREE_TRANSFER) transfer = rally.challenge;
+      if (key === RALLY_SUBTREE_TRANSFER) break;
     }
-    return { rows: rally.summary(), transfer };
+    return rally.challenge;
   }
 
   // docs/js/rotation-scene.js
@@ -1066,8 +1071,7 @@
   // docs/js/app.js
   var byId = (id) => document.getElementById(id);
   var experiment = new Experiment();
-  var rallyExample = buildRallyExample();
-  var exampleGrowthLabel = "Example market rally";
+  var exampleRotation = buildExampleRotation();
   var views = {
     bst: new TreeView(byId("bst-view"), { label: "Ordinary binary search tree" }),
     avl: new TreeView(byId("avl-view"), { label: "AVL tree" })
@@ -1090,6 +1094,7 @@
   var rallyResult = null;
   var alternateResult = null;
   var growthSelection = null;
+  var visibleAvlHeight = -1;
   var pendingRepair = null;
   var shownChallenge = null;
   var lastSearchTarget = null;
@@ -1216,10 +1221,12 @@
     renderStats(avl);
   }
   function renderStats(avl) {
+    visibleAvlHeight = height(avl);
     byId("bst-count").textContent = experiment.history.length;
     byId("avl-count").textContent = experiment.history.length;
     byId("bst-height").textContent = experiment.bst ? height(experiment.bst) : "\u22121";
-    byId("avl-height").textContent = avl ? height(avl) : "\u22121";
+    byId("avl-height").textContent = avl ? visibleAvlHeight : "\u22121";
+    renderGrowth();
   }
   function clearSearch() {
     lastSearchTarget = null;
@@ -1241,11 +1248,11 @@
   }
   function updateRun() {
     clearSearch();
+    growthSelection = null;
     if (runKind === "custom") byId("search-prompt").textContent = "Which tree will visit fewer nodes for the same price?";
     updateControls();
     renderBatch();
     updateChallenge();
-    renderGrowth();
     renderComparison();
   }
   function resetGuidedRun() {
@@ -1470,8 +1477,10 @@
       views.avl.select(rotation.pivot);
       return;
     }
-    if (rotation && !await showRotation(rotation, entry.key, signal, quick)) return;
-    renderStats(experiment.avl);
+    if (rotation) {
+      if (!await showRotation(rotation, entry.key, signal, quick)) return;
+      renderStats(experiment.avl);
+    }
     status("build-status", `Inserted ${formatPrice(entry.key)} into both trees.`, "success");
   }
   async function continueRepair(signal, quick = false) {
@@ -1627,14 +1636,21 @@
     byId("comparison-takeaway").textContent = after ? `Changing the insertion order cut the BST search from ${before.bst.comparisons} comparisons to ${after.bst.comparisons}. The AVL search took ${after.avl.comparisons} comparisons in both runs.` : `Search target ${formatPrice(before.target)}. Keep the same prices and see what a different insertion order changes.`;
   }
   function renderGrowth({ updateTables = true } = {}) {
-    const rows = experiment.summary();
-    const comparison = runKind === "alternate" && rallyResult;
-    const showingExample = !rows.length && !experiment.batch;
-    const runs = comparison ? [{ label: "Market rally", rows: rallyResult.rows }, { label: "Different order", rows }] : showingExample ? [{ label: exampleGrowthLabel, rows: rallyExample.rows }] : [{ label: runKind === "rally" ? "Market rally" : "Current run", rows }];
-    const count = Math.max(...runs.map((run) => run.rows.length));
-    byId("growth-example").hidden = !showingExample;
-    byId("growth-pending").hidden = count > 0;
-    const domain = runKind === "custom" && !showingExample ? { prices: count, height: Math.max(1, ...rows.flatMap((row) => [row.bstHeight, row.avlHeight])) } : { prices: RALLY_PRICES.length, height: RALLY_PRICES.length - 1 };
+    const rows = withVisibleAvlHeight(experiment.summary(), visibleAvlHeight);
+    const runs = [{ label: "Current run", rows }];
+    if (runKind === "alternate" && alternateResult) {
+      runs.push({ label: "Completed market rally", rows: rallyResult.rows });
+    }
+    const count = rows.length;
+    const empty = byId("growth-empty");
+    empty.hidden = count > 0;
+    empty.textContent = experiment.batch ? "Press Step or Play to start plotting this replay." : "Insert a price or run the rally to start plotting.";
+    byId("growth-inspect").hidden = !count;
+    growth.hidden = !count;
+    const domain = {
+      prices: experiment.batch?.keys.length ?? Math.max(1, count),
+      height: Math.max(1, ...runs.flatMap((run) => run.rows.flatMap((row) => [row.bstHeight, row.avlHeight])))
+    };
     const selected = Math.max(1, Math.min(growthSelection ?? count, count));
     const cursor = byId("growth-cursor");
     cursor.max = Math.max(1, count);
@@ -1646,19 +1662,14 @@
     if (growth.open && updateTables) renderGrowthTables();
   }
   function renderGrowthTables() {
-    const savedRally = runKind === "alternate" ? rallyResult : null;
+    const savedRally = runKind === "alternate" && alternateResult ? rallyResult : null;
     byId("growth-rally-wrap").hidden = !savedRally;
     if (savedRally) {
-      writeGrowthTable(byId("growth-rally-table"), savedRally.rows, "Market rally \xB7 Heights by insertion");
+      writeGrowthTable(byId("growth-rally-table"), savedRally.rows, "Completed market rally \xB7 Heights by insertion");
     }
-    const rows = experiment.summary(lastSearchTarget);
+    const rows = withVisibleAvlHeight(experiment.summary(lastSearchTarget), visibleAvlHeight);
     const table = byId("growth-table");
-    const showingExample = !rows.length && !experiment.batch;
-    byId("growth-table-wrap").hidden = !rows.length && !showingExample;
-    if (showingExample) {
-      writeGrowthTable(table, rallyExample.rows, exampleGrowthLabel);
-      return;
-    }
+    byId("growth-table-wrap").hidden = !rows.length;
     const label = { rally: "Market rally", alternate: "Different order" }[runKind] ?? "Current run";
     writeGrowthTable(table, rows, label, lastSearchTarget);
   }
@@ -1708,12 +1719,12 @@
   });
   byId("review-transfer").addEventListener("click", (event) => {
     const example = !experiment.avl;
-    openLab(false, { trace: example ? rallyExample.transfer : experiment.challenge, opener: event.currentTarget, example });
+    openLab(false, { trace: example ? exampleRotation : experiment.challenge, opener: event.currentTarget, example });
   });
   byId("open-3d").addEventListener("click", (event) => {
     const example = !experiment.avl;
     openLab(false, {
-      trace: example ? rallyExample.transfer : experiment.challenge,
+      trace: example ? exampleRotation : experiment.challenge,
       opener: event.currentTarget,
       example,
       showCurrent: !example,
@@ -1764,7 +1775,6 @@
       cancelPlayback();
       renderTrees(pendingRepair?.before, pendingRepair?.pivot);
       updateControls();
-      renderGrowth();
     }
     practice = interactive ? new RotationPractice(solution.before) : null;
     labView.mode = interactive ? "practice" : "read";
@@ -1882,5 +1892,4 @@
   renderTrees();
   updateControls();
   updatePreview();
-  renderGrowth();
 })();

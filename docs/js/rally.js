@@ -19,13 +19,12 @@ export function balancedReplayOrder(keys) {
   return order;
 }
 
-export function buildRallyExample() {
+export function buildExampleRotation() {
   const rally = new Experiment();
   rally.startReplay(RALLY_PRICES);
-  let transfer;
   for (const key of RALLY_PRICES) {
     rally.step();
-    if (key === RALLY_SUBTREE_TRANSFER) transfer = rally.challenge;
+    if (key === RALLY_SUBTREE_TRANSFER) break;
   }
-  return { rows: rally.summary(), transfer };
+  return rally.challenge;
 }

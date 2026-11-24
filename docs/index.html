@@ -7,7 +7,7 @@
   <meta name="theme-color" content="#f6f6ef">
   <title>The Market That Broke a Tree</title>
   <link rel="stylesheet" href="./styles.css?v=current-tree-replay">
-  <script defer src="./app.bundle.js?v=current-tree-replay"></script>
+  <script defer src="./app.bundle.js?v=live-growth-chart"></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to the experiment</a>
@@ -228,20 +228,19 @@
     <section class="surface growth-panel" id="growth-panel" tabindex="-1" aria-labelledby="growth-title">
       <h2 id="growth-title">Compare as the trees grow</h2>
       <div class="growth-content">
-        <p>Each point shows the height in edges after insertion and any AVL repair. A search can visit at most height + 1 nodes in a nonempty tree.</p>
-        <p id="growth-example">This chart uses the eight example prices. Insert a price or start the rally to chart your run.</p>
-        <p id="growth-pending" hidden>Press Step or Play to start charting the replay.</p>
+        <p>The latest point shows the heights currently displayed in the tree panels. Earlier points record the heights after each insertion and repair.</p>
+        <p id="growth-empty">Insert a price or run the rally to start plotting.</p>
         <div>
           <div class="growth-legend" aria-label="Chart legend"><span class="legend-bst">Ordinary BST</span><span class="legend-avl">AVL tree</span></div>
           <div id="growth-charts" class="growth-charts"></div>
-          <div class="growth-inspect">
+          <div class="growth-inspect" id="growth-inspect" hidden>
             <label for="growth-cursor">Select a point or move the slider <output id="growth-position" for="growth-cursor"></output></label>
             <input id="growth-cursor" type="range" min="1" max="1" value="1">
           </div>
-          <details id="growth">
+          <details id="growth" hidden>
             <summary>Show exact heights and search counts</summary>
-            <div class="table-scroll" id="growth-rally-wrap" tabindex="0" role="region" aria-label="Rally growth values" hidden><table id="growth-rally-table"></table></div>
             <div class="table-scroll" id="growth-table-wrap" tabindex="0" role="region" aria-label="Current run growth values" hidden><table id="growth-table"></table></div>
+            <div class="table-scroll" id="growth-rally-wrap" tabindex="0" role="region" aria-label="Rally growth values" hidden><table id="growth-rally-table"></table></div>
           </details>
         </div>
       </div>

@@ -18,11 +18,11 @@ Open [the local lesson](http://127.0.0.1:8000/). All prices and results are proc
 
 ## Run the guided lesson
 
-**Explore in 3D** opens your current AVL tree. Once a rotation happens, you can switch to the recorded repair and back to the current tree. Before you build a tree, the button opens a labeled example. **View growth chart** jumps to the chart, which switches from example prices to your run as you insert prices.
+**Explore in 3D** opens your current AVL tree. Once a rotation happens, you can switch to the recorded repair and back to the current tree. Before you build a tree, the button opens a labeled example. **View growth chart** jumps to a chart that starts empty and tracks your run one insertion at a time.
 
 1. Select **Run the rally**. Both trees insert $100, $101, and $102, then pause at the first AVL imbalance. Select **View the repair** to inspect it, **Step through repair** to apply just the rotation, or **Play** to repair the tree and continue through $107.
 2. Select **Predict $107** and submit the search. Watch the comparison counters advance as the two trees visit their nodes.
-3. Select **Replay with a different order**. The same eight keys are reordered and inserted again, then the lesson searches for $107. Use **Compare results** to see both runs together. Click or tap the growth chart, or move its slider, to inspect the same insertion in both runs.
+3. Select **Replay with a different order**. The same eight keys are reordered and inserted again, then the lesson searches for $107. The chart builds as the replay runs. Once it finishes, use **Compare results** to see both runs together. Click or tap the growth chart, or move its slider, to inspect the same insertion in both runs.
 4. Select **Review last AVL repair** to step through the rotation recorded during your run. In **3D preview**, drag or use the arrow controls to orbit, zoom with **−** and **+**, and select a node to see its balance factor, parent, and children. **Next frame** keeps your viewing angle and updates the selected node as the tree rotates.
 
 ## Try your own prices

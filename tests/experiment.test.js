@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Experiment, MAX_PRICES, RotationPractice } from '../docs/js/experiment.js';
-import { inOrderNodes } from '../docs/js/trees.js';
+import { withVisibleAvlHeight } from '../docs/js/growth-view.js';
+import { height, inOrderNodes } from '../docs/js/trees.js';
 import { balancedReplayOrder, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_SUBTREE_TRANSFER, RALLY_TARGET } from '../docs/js/rally.js';
 
 test('manual insertion keeps the trees in sync and handles duplicates, zero, and undo', () => {
@@ -82,6 +83,17 @@ test('reports measured heights and prefix search costs from the actual run', () 
   assert.equal(lab.search(40).avl.found, true);
   assert.equal(lab.search(50).avl.found, false);
   assert.equal(lab.history.length, 4);
+});
+
+test('the latest chart point follows the visible repair frame without changing recorded history', () => {
+  const lab = new Experiment();
+  assert.deepEqual(withVisibleAvlHeight(lab.summary(), -1), []);
+  for (const key of [10, 20, 30]) lab.insertPrice(key);
+  const rows = lab.summary();
+  const paused = withVisibleAvlHeight(rows, height(lab.challenge.before));
+  assert.deepEqual(paused.map(row => row.avlHeight), [0, 1, 2]);
+  assert.deepEqual(withVisibleAvlHeight(rows, height(lab.avl)).map(row => row.avlHeight), [0, 1, 1]);
+  assert.deepEqual(paused.slice(0, -1), rows.slice(0, -1));
 });
 
 test('guided orders use identical prices and produce the expected heights and search paths', () => {
