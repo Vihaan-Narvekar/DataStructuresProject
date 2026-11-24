@@ -1,9 +1,9 @@
 import { Experiment, MAX_PRICES, RotationPractice } from './experiment.js';
 import { renderGrowthPlots } from './growth-view.js';
 import { formatPrice, generatePrices, parsePrice, parseSequence } from './prices.js';
-import { ALTERNATE_PRICES, buildRallyExample, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_TARGET } from './rally.js';
+import { balancedReplayOrder, buildRallyExample, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_TARGET } from './rally.js';
 import { RotationScene } from './rotation-scene.js';
-import { balance, height, inOrderNodes } from './trees.js';
+import { balance, copyTree, height, inOrderNodes } from './trees.js';
 import { TreeView } from './tree-view.js';
 
 const byId = id => document.getElementById(id);
@@ -39,7 +39,11 @@ let lastSearchTarget = null;
 let practice = null;
 let solution = null;
 let solutionIndex = 0;
-let labTransfer = null;
+let currentLabTree = null;
+let showingCurrentLabTree = false;
+let labExample = false;
+let labRoles = {};
+let labRoot = null;
 let labOpener = null;
 
 byId('capacity').textContent = `Up to ${MAX_PRICES} prices per run`;
@@ -114,6 +118,12 @@ function updateControls() {
   byId('undo').disabled = !total;
   byId('clear').disabled = !total && !batch;
   byId('use-current').disabled = !total;
+  byId('replay-current').hidden = !total;
+  byId('open-3d').disabled = byId('review-transfer').disabled = Boolean(batch && !total);
+  byId('review-transfer').textContent = experiment.challenge ? 'Review last AVL repair' : total ? 'View current AVL tree' : 'Review example rotation';
+  byId('rotation-review-description').textContent = experiment.challenge
+    ? `Step through the repair triggered by ${formatPrice(experiment.challenge.key)}.`
+    : total || batch ? 'Inspect the tree formed by your current prices.' : 'On the sixth rally insertion, the branch rooted at $102 changes parents.';
   byId('suggest-price').disabled = !total;
   byId('batch-bar').hidden = !batch;
   byId('step').disabled = !availableSteps() || Boolean(active);
@@ -240,7 +250,7 @@ byId('paste-mode').addEventListener('click', () => chooseSequenceMode('paste'));
 byId('generate-mode').addEventListener('click', () => chooseSequenceMode('generate'));
 byId('try-rally').addEventListener('click', () => startRun('rally', RALLY_PRICES));
 byId('replay-alternate').addEventListener('click', () => {
-  if (rallyResult && runKind === 'rally') startRun('alternate', ALTERNATE_PRICES);
+  if (rallyResult && runKind === 'rally') startRun('alternate', balancedReplayOrder(rallyResult.order));
 });
 
 byId('paste-form').addEventListener('submit', event => {
@@ -304,6 +314,11 @@ function startRun(kind, keys) {
 }
 
 byId('start-replay').addEventListener('click', () => startRun('custom'));
+byId('replay-current').addEventListener('click', () => {
+  const keys = experiment.history.map(({ key }) => key);
+  startRun('custom', keys);
+  status('build-status', `Replay ready with the ${keys.length} prices already inserted in your run.`);
+});
 
 byId('insert-form').addEventListener('submit', event => {
   event.preventDefault();
@@ -613,7 +628,7 @@ function renderComparison() {
 function renderGrowth({ updateTables = true } = {}) {
   const rows = experiment.summary();
   const comparison = runKind === 'alternate' && rallyResult;
-  const showingExample = !rows.length && !comparison;
+  const showingExample = !rows.length && !experiment.batch;
   const runs = comparison
     ? [{ label: 'Market rally', rows: rallyResult.rows }, { label: 'Different order', rows }]
     : showingExample
@@ -621,17 +636,18 @@ function renderGrowth({ updateTables = true } = {}) {
       : [{ label: runKind === 'rally' ? 'Market rally' : 'Current run', rows }];
   const count = Math.max(...runs.map(run => run.rows.length));
   byId('growth-example').hidden = !showingExample;
+  byId('growth-pending').hidden = count > 0;
 
   const domain = runKind === 'custom' && !showingExample
     ? { prices: count, height: Math.max(1, ...rows.flatMap(row => [row.bstHeight, row.avlHeight])) }
     : { prices: RALLY_PRICES.length, height: RALLY_PRICES.length - 1 };
-  const selected = Math.min(growthSelection ?? count, count);
+  const selected = Math.max(1, Math.min(growthSelection ?? count, count));
   const cursor = byId('growth-cursor');
-  cursor.max = count;
+  cursor.max = Math.max(1, count);
   cursor.value = selected;
-  cursor.disabled = count === 1;
+  cursor.disabled = count < 2;
   cursor.setAttribute('aria-valuetext', `Insertion ${selected} of ${count}`);
-  byId('growth-position').value = `${selected} of ${count}`;
+  byId('growth-position').value = count ? `${selected} of ${count}` : '';
   renderGrowthPlots(byId('growth-charts'), runs, domain, selected, inspectGrowth);
   if (growth.open && updateTables) renderGrowthTables();
 }
@@ -644,7 +660,7 @@ function renderGrowthTables() {
   }
   const rows = experiment.summary(lastSearchTarget);
   const table = byId('growth-table');
-  const showingExample = !rows.length && !savedRally;
+  const showingExample = !rows.length && !experiment.batch;
   byId('growth-table-wrap').hidden = !rows.length && !showingExample;
   if (showingExample) {
     writeGrowthTable(table, rallyExample.rows, exampleGrowthLabel);
@@ -702,11 +718,20 @@ byId('view-rally-repair').addEventListener('click', event => {
   if (pendingRepair) openLab(false, { trace: pendingRepair, opener: event.currentTarget });
 });
 byId('review-transfer').addEventListener('click', event => {
-  openLab(false, { trace: rallyExample.transfer, opener: event.currentTarget, showTransfer: true });
+  const example = !experiment.avl;
+  openLab(false, { trace: example ? rallyExample.transfer : experiment.challenge, opener: event.currentTarget, example });
 });
 byId('open-3d').addEventListener('click', event => {
-  openLab(false, { trace: rallyExample.transfer, opener: event.currentTarget, showTransfer: true, startIn3D: true });
+  const example = !experiment.avl;
+  openLab(false, {
+    trace: example ? rallyExample.transfer : experiment.challenge,
+    opener: event.currentTarget,
+    example,
+    showCurrent: !example,
+    startIn3D: true,
+  });
 });
+byId('lab-tree-toggle').addEventListener('click', () => renderLabReview(!showingCurrentLabTree));
 byId('rotation-front').addEventListener('click', () => setRotationAngle(false));
 byId('rotation-angle').addEventListener('click', () => setRotationAngle(true));
 byId('rotate-left').addEventListener('click', () => practiceMove(practice.rotate(labView.selection, 'left')));
@@ -730,16 +755,19 @@ byId('solution-next').addEventListener('click', () => {
 labDialog.addEventListener('close', () => {
   practice = null;
   solution = null;
-  labTransfer = null;
+  currentLabTree = null;
+  labRoot = null;
   rotationScene.reset();
   if (labOpener && !labOpener.closest('[hidden]')) labOpener.focus({ preventScroll: true });
   labOpener = null;
 });
 
-function openLab(interactive, { trace = experiment.challenge, opener, showTransfer = false, startIn3D = false } = {}) {
-  if (!trace || labDialog.open) return;
+function openLab(interactive, { trace = experiment.challenge, opener, example = false, showCurrent = false, startIn3D = false } = {}) {
+  if (labDialog.open || (!trace && (interactive || !experiment.avl))) return;
   solution = trace;
   labOpener = opener;
+  labExample = example;
+  currentLabTree = !interactive && !example ? copyTree(experiment.avl) : null;
   if (active?.kind === 'batch') {
     active.pause = true;
     updateControls();
@@ -752,35 +780,56 @@ function openLab(interactive, { trace = experiment.challenge, opener, showTransf
   }
   practice = interactive ? new RotationPractice(solution.before) : null;
   labView.mode = interactive ? 'practice' : 'read';
-  labTransfer = showTransfer ? findTransferredBranch(solution) : null;
-  byId('rotation-views').hidden = !labTransfer;
+  byId('rotation-views').hidden = interactive;
+  byId('lab-tree-toggle').hidden = !currentLabTree || !solution;
   setRotationAngle(false);
-  renderRotationKey();
-  byId('lab-title').textContent = interactive ? 'Rotation practice' : 'Replay the repair';
-  byId('lab-instruction').textContent = interactive
-    ? 'Promote a child by dragging it onto its parent, or select a pivot and use the rotation buttons. Bring every balance factor within −1 to 1.'
-    : `Follow the ${solution.caseName.toLowerCase()} repair after inserting ${formatPrice(solution.key)}.`;
   byId('practice-actions').hidden = !interactive;
-  byId('solution-actions').hidden = interactive;
   labDialog.showModal();
   labView.resetLayout();
   if (practice) {
+    byId('lab-title').textContent = 'Rotation practice';
+    byId('lab-instruction').textContent = 'Promote a child by dragging it onto its parent, or select a pivot and use the rotation buttons. Bring every balance factor within −1 and 1.';
+    byId('solution-actions').hidden = true;
+    labRoles = {};
+    renderRotationKey();
     renderPractice();
     labView.select(solution.pivot);
     labView.ensureVisible(solution.pivot);
   } else {
     solutionIndex = 0;
-    renderSolution();
-    if (labTransfer) labView.fit();
-    if (labTransfer && startIn3D) setRotationAngle(true);
+    renderLabReview(showCurrent || !solution);
+    if (startIn3D) setRotationAngle(true);
   }
 }
 
-function findTransferredBranch(trace) {
-  const step = trace.steps[0];
-  const promoted = inOrderNodes(trace.before).find(node => node.key === step.promoted);
+function renderLabReview(showCurrent) {
+  showingCurrentLabTree = showCurrent;
+  byId('lab-tree-toggle').textContent = showCurrent ? 'Replay last AVL repair' : 'View current AVL tree';
+  byId('solution-actions').hidden = showCurrent;
+  if (showCurrent) {
+    byId('lab-title').textContent = 'Current AVL tree';
+    byId('lab-instruction').textContent = solution
+      ? 'Inspect your current tree or revisit the last repair from this run.'
+      : 'Inspect your current tree. This run has not needed a rotation yet.';
+    labRoles = {};
+    renderRotationKey();
+    renderLabTree(currentLabTree, false);
+    status('lab-status');
+  } else {
+    byId('lab-title').textContent = labExample ? 'Example AVL repair' : 'Replay the repair';
+    byId('lab-instruction').textContent = `Follow the ${solution.caseName.toLowerCase()} repair recorded when ${formatPrice(solution.key)} was inserted.`;
+    renderSolution();
+  }
+  if (!labHost.hidden) labView.fit();
+}
+
+function getRotationRoles(trace, frame) {
+  const index = Math.max(0, frame - 1);
+  const step = trace.steps[index];
+  const before = trace.steps[index - 1]?.tree ?? trace.before;
+  const promoted = inOrderNodes(before).find(node => node.key === step.promoted);
   const branch = step.direction === 'left' ? promoted.left : promoted.right;
-  return branch ? { pivot: step.pivot, promoted: step.promoted, branch: branch.key } : null;
+  return { pivot: step.pivot, promoted: step.promoted, ...(branch && { branch: branch.key }) };
 }
 
 function setRotationAngle(angled) {
@@ -788,16 +837,15 @@ function setRotationAngle(angled) {
   orbitHost.hidden = !angled;
   byId('rotation-front').setAttribute('aria-pressed', !angled);
   byId('rotation-angle').setAttribute('aria-pressed', angled);
-  if (angled) rotationScene.render(solution.steps[solutionIndex - 1]?.tree ?? solution.before, labTransfer, false);
+  if (angled) rotationScene.render(labRoot, labRoles, false);
 }
 
 function renderRotationKey() {
   const key = byId('rotation-key');
-  key.hidden = !labTransfer;
+  key.hidden = !Object.keys(labRoles).length;
   key.replaceChildren();
-  if (!labTransfer) return;
   const roles = { pivot: 'Pivot', promoted: 'Promoted node', branch: 'Moving branch' };
-  for (const [role, price] of Object.entries(labTransfer)) {
+  for (const [role, price] of Object.entries(labRoles)) {
     const label = document.createElement('li');
     label.dataset.rotationRole = role;
     label.textContent = `${roles[role]} ${formatPrice(price)}`;
@@ -812,9 +860,10 @@ function updateLabButtons(node) {
 }
 
 function renderLabTree(root, animate) {
-  labView.render(root, { animate, compact: Boolean(labTransfer) });
-  labView.markRotation(labTransfer ?? undefined);
-  if (!orbitHost.hidden) rotationScene.render(root, labTransfer, animate);
+  labRoot = root;
+  labView.render(root, { animate, compact: labRoles.branch !== undefined });
+  labView.markRotation(labRoles);
+  if (!orbitHost.hidden) rotationScene.render(root, labRoles, animate);
   byId('lab-traversal').textContent = inOrderNodes(root).map(node => formatPrice(node.key)).join(' → ');
 }
 
@@ -839,6 +888,8 @@ function practiceMove(move) {
 function renderSolution() {
   const step = solution.steps[solutionIndex - 1];
   const pivot = step?.promoted ?? solution.pivot;
+  labRoles = getRotationRoles(solution, solutionIndex);
+  renderRotationKey();
   renderLabTree(step?.tree ?? solution.before, Boolean(step));
   labView.highlight(step ? [step.pivot] : [], pivot, true);
   const back = byId('solution-back');
@@ -851,9 +902,9 @@ function renderSolution() {
   const action = step
     ? `Rotate ${step.direction} at ${formatPrice(step.pivot)} to promote ${formatPrice(step.promoted)}.`
     : `Before rotation, ${formatPrice(solution.pivot)} has balance factor ${solution.balance}.`;
-  const onRight = (solution.steps[0]?.direction === 'left') === Boolean(step);
-  const transfer = labTransfer
-    ? ` The branch rooted at ${formatPrice(labTransfer.branch)} is the ${onRight ? 'right' : 'left'} child of ${formatPrice(step ? labTransfer.pivot : labTransfer.promoted)}.`
+  const onRight = ((step ?? solution.steps[0]).direction === 'left') === Boolean(step);
+  const transfer = labRoles.branch !== undefined
+    ? ` The branch rooted at ${formatPrice(labRoles.branch)} is the ${onRight ? 'right' : 'left'} child of ${formatPrice(step ? labRoles.pivot : labRoles.promoted)}.`
     : '';
   status('lab-status', `Frame ${solutionIndex + 1} of ${solution.steps.length + 1}. ${action}${transfer}`);
 }

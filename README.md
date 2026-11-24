@@ -18,16 +18,17 @@ Open [the local lesson](http://127.0.0.1:8000/). All prices and results are proc
 
 ## Run the guided lesson
 
-**Explore in 3D** opens the rotation example from the homepage. **View growth chart** jumps to an interactive chart with example prices. The chart switches to your data when you insert a price.
+**Explore in 3D** opens your current AVL tree. Once a rotation happens, you can switch to the recorded repair and back to the current tree. Before you build a tree, the button opens a labeled example. **View growth chart** jumps to the chart, which switches from example prices to your run as you insert prices.
 
 1. Select **Run the rally**. Both trees insert $100, $101, and $102, then pause at the first AVL imbalance. Select **View the repair** to inspect it, **Step through repair** to apply just the rotation, or **Play** to repair the tree and continue through $107.
 2. Select **Predict $107** and submit the search. Watch the comparison counters advance as the two trees visit their nodes.
-3. Select **Replay with a different order**. The same eight keys are inserted in a fixed alternate order, then the lesson searches for $107 again. Use **Compare results** to see both runs together. Click or tap the growth chart, or move its slider, to inspect the same insertion in both runs.
-4. Select **Review subtree transfer** to see what happens to the branch rooted at $102 after the sixth rally insertion. In **3D preview**, drag or use the arrow controls to orbit, zoom with **−** and **+**, and select a node to see its balance factor, parent, and children. **Next frame** keeps your viewing angle and updates the selected node as the tree rotates.
+3. Select **Replay with a different order**. The same eight keys are reordered and inserted again, then the lesson searches for $107. Use **Compare results** to see both runs together. Click or tap the growth chart, or move its slider, to inspect the same insertion in both runs.
+4. Select **Review last AVL repair** to step through the rotation recorded during your run. In **3D preview**, drag or use the arrow controls to orbit, zoom with **−** and **+**, and select a node to see its balance factor, parent, and children. **Next frame** keeps your viewing angle and updates the selected node as the tree rotates.
 
 ## Try your own prices
 
 - Insert prices one at a time, or use **Customize sequence** to paste prices or generate them with a start, increment, and count. Preview the values, choose an insertion order, and select **Replay this order**. Use **Step**, **Play**, **Pause**, or **Undo** to control the sequence.
+- Select **Replay current prices** to rebuild both trees from the prices already inserted, in their original insertion order. To choose a different order, use **Use current prices** in **Customize sequence**.
 - Enter a target or choose **Use a deepest BST key**. Compare search paths and expand **Show exact heights and search counts** for the measurements after each insertion.
 - Open **Practice a rotation** after a run triggers an imbalance. Drag a child onto its parent or select a pivot and use the rotation buttons. Use **Undo move** and **Retry** to explore.
 

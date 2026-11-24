@@ -338,6 +338,7 @@ dialog::backdrop { background: #14241bbc; }
 }
 .orbit-node[aria-pressed="true"] .orbit-node-hit { stroke: #223d34; stroke-dasharray: 3 3; }
 .orbit-node:is(:focus-visible, :hover) .orbit-node-hit { stroke: #223d34; }
+.orbit-stage.is-dense .orbit-node:not([aria-pressed="true"], :focus-visible, :hover) text { visibility: hidden; }
 .rotation-key { display: flex; gap: 6px; flex-wrap: wrap; list-style: none; padding: 0; margin: 0 0 9px; }
 .rotation-key li { padding: 3px 7px; border: 1px solid currentColor; border-radius: 6px; font-size: .72rem; font-weight: 750; }
 .rotation-key [data-rotation-role="pivot"] { color: #833f23; background: #ffebce; }

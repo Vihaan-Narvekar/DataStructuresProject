@@ -6,8 +6,8 @@
   <meta name="description" content="Build and compare a binary search tree and an AVL tree in an interactive stock-price experiment.">
   <meta name="theme-color" content="#f6f6ef">
   <title>The Market That Broke a Tree</title>
-  <link rel="stylesheet" href="./styles.css?v=homepage-3d">
-  <script defer src="./app.bundle.js?v=homepage-3d"></script>
+  <link rel="stylesheet" href="./styles.css?v=current-tree-replay">
+  <script defer src="./app.bundle.js?v=current-tree-replay"></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to the experiment</a>
@@ -59,6 +59,7 @@
           </form>
           <div class="run-actions">
             <button type="button" id="sequence-toggle" class="button outlined" aria-expanded="false" aria-controls="sequence-panel">Customize sequence <span class="chevron" aria-hidden="true">⌄</span></button>
+            <button type="button" id="replay-current" class="button outlined" hidden>Replay current prices</button>
             <button type="button" id="undo" class="button quiet" disabled>Undo</button>
             <button type="button" id="clear" class="button quiet" disabled>Clear trees</button>
           </div>
@@ -195,8 +196,8 @@
     <div class="lesson-grid">
       <section class="surface lesson-card" aria-labelledby="guided-rotation-title">
         <h2 id="guided-rotation-title">Follow a moving branch</h2>
-        <p>On the sixth rally insertion, the branch rooted at $102 changes parents. Step through the example in 2D or 3D.</p>
-        <button type="button" id="review-transfer" class="button outlined">Review subtree transfer <span aria-hidden="true">→</span></button>
+        <p id="rotation-review-description">On the sixth rally insertion, the branch rooted at $102 changes parents.</p>
+        <button type="button" id="review-transfer" class="button outlined">Review example rotation</button>
       </section>
       <section class="surface lesson-card" aria-labelledby="rotation-title">
         <h2 id="rotation-title">Rotation practice</h2>
@@ -229,6 +230,7 @@
       <div class="growth-content">
         <p>Each point shows the height in edges after insertion and any AVL repair. A search can visit at most height + 1 nodes in a nonempty tree.</p>
         <p id="growth-example">This chart uses the eight example prices. Insert a price or start the rally to chart your run.</p>
+        <p id="growth-pending" hidden>Press Step or Play to start charting the replay.</p>
         <div>
           <div class="growth-legend" aria-label="Chart legend"><span class="legend-bst">Ordinary BST</span><span class="legend-avl">AVL tree</span></div>
           <div id="growth-charts" class="growth-charts"></div>
@@ -273,6 +275,7 @@
     </div>
     <div class="lab-content">
       <p id="lab-instruction"></p>
+      <button type="button" id="lab-tree-toggle" class="button text-button" hidden>View current AVL tree</button>
       <div class="segmented rotation-view-switch" id="rotation-views" role="group" aria-label="Rotation view" hidden>
         <button type="button" id="rotation-front" aria-pressed="true">2D</button>
         <button type="button" id="rotation-angle" aria-pressed="false">3D preview</button>

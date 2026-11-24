@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { Experiment, MAX_PRICES, RotationPractice } from '../docs/js/experiment.js';
 import { inOrderNodes } from '../docs/js/trees.js';
-import { ALTERNATE_PRICES, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_SUBTREE_TRANSFER, RALLY_TARGET } from '../docs/js/rally.js';
+import { balancedReplayOrder, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_SUBTREE_TRANSFER, RALLY_TARGET } from '../docs/js/rally.js';
 
 test('manual insertion keeps the trees in sync and handles duplicates, zero, and undo', () => {
   const lab = new Experiment();
@@ -87,7 +87,9 @@ test('reports measured heights and prefix search costs from the actual run', () 
 test('guided orders use identical prices and produce the expected heights and search paths', () => {
   const lab = new Experiment();
   const shortPath = [10300, 10500, 10600, 10700];
-  for (const [order, expectedHeight, bstPath] of [[RALLY_PRICES, 7, RALLY_PRICES], [ALTERNATE_PRICES, 3, shortPath]]) {
+  const alternate = balancedReplayOrder(RALLY_PRICES);
+  assert.deepEqual(alternate, [10300, 10100, 10500, 10000, 10200, 10400, 10600, 10700]);
+  for (const [order, expectedHeight, bstPath] of [[RALLY_PRICES, 7, RALLY_PRICES], [alternate, 3, shortPath]]) {
     assert.equal(lab.startReplay(order), true);
     while (lab.step()) { /* drain the sequence */ }
     assert.deepEqual(inOrderNodes(lab.bst).map(node => node.key), RALLY_PRICES);
@@ -98,6 +100,12 @@ test('guided orders use identical prices and produce the expected heights and se
     assert.deepEqual(bst, { found: true, visited: bstPath, comparisons: bstPath.length });
     assert.deepEqual(avl, { found: true, visited: shortPath, comparisons: 4 });
   }
+});
+
+test('a reordered replay retains the current keys and leaves their source unchanged', () => {
+  const keys = [750, 0, 4000, 10, 1000];
+  assert.deepEqual(balancedReplayOrder(keys), [750, 0, 1000, 10, 4000]);
+  assert.deepEqual(keys, [750, 0, 4000, 10, 1000]);
 });
 
 test('the rally records an introductory imbalance and a later subtree transfer', () => {

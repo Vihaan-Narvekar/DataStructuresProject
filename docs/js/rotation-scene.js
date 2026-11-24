@@ -23,13 +23,16 @@ function svgElement(tag, attributes = {}) {
 export function layoutRotationTree(root) {
   const ordered = inOrderNodes(root);
   const ranks = new Map(ordered.map((node, index) => [node.key, index]));
-  const levels = (root?.height ?? 0) / 2;
+  const height = root?.height ?? 0;
+  const spacingX = Math.min(64, 320 / Math.max(1, ordered.length - 1));
+  const spacingY = Math.min(70, 210 / Math.max(1, height));
+  const depthScale = Math.min(1, 4 / Math.max(1, height));
   const nodes = new Map();
   function visit(node, parent, level, z) {
     if (!node) return;
-    const x = (ranks.get(node.key) - (ordered.length - 1) / 2) * 64;
-    nodes.set(node.key, { node, parent, center: [x, (levels - level) * 70, z] });
-    const separation = Math.max(24, 56 - 10 * level);
+    const x = (ranks.get(node.key) - (ordered.length - 1) / 2) * spacingX;
+    nodes.set(node.key, { node, parent, center: [x, (height / 2 - level) * spacingY, z] });
+    const separation = Math.max(24, 56 - 10 * level) * depthScale;
     visit(node.left, node.key, level + 1, z - separation);
     visit(node.right, node.key, level + 1, z + separation);
   }
@@ -147,6 +150,8 @@ export class RotationScene {
   render(root, roles, animate) {
     cancelAnimationFrame(this.frame);
     this.nodes = layoutRotationTree(root);
+    this.nodeScale = Math.min(1, Math.sqrt(12 / this.nodes.size));
+    this.stage.classList.toggle('is-dense', this.nodes.size > 14);
     this.roles = new Map(Object.entries(roles).map(([role, key]) => [key, role]));
     for (const [key, control] of this.controls) {
       if (this.nodes.has(key)) continue;
@@ -162,7 +167,11 @@ export class RotationScene {
       this.labels.append(label);
       this.controls.set(key, label);
     }
-    if (!this.nodes.has(this.selected)) this.selected = roles.branch;
+    for (const label of this.controls.values()) {
+      label.firstElementChild.setAttribute('r', Math.max(10, 22 * this.nodeScale));
+      label.lastElementChild.setAttribute('y', -23 * this.nodeScale - 2);
+    }
+    if (!this.nodes.has(this.selected)) this.selected = roles.branch ?? roles.pivot ?? root.key;
     this.updateSelection();
 
     const start = this.points;
@@ -226,7 +235,7 @@ export class RotationScene {
         link.classList.toggle('is-connected', this.selected === parent || this.selected === key);
         links.push(link);
       }
-      const vertices = corners.map(corner => project(point.map((value, i) => value + corner[i])));
+      const vertices = corners.map(corner => project(point.map((value, i) => value + corner[i] * this.nodeScale)));
       for (const [index, indices] of faces.entries()) {
         const face = indices.map(i => vertices[i]);
         const points = face.map(vertex => `${vertex.x},${vertex.y}`).join(' ');
