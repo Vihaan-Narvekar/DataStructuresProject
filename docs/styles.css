@@ -73,6 +73,9 @@ h1 em { color: #386345; font-weight: inherit; }
 .button > span { font-weight: 550; }
 .button.solid { background: var(--green); border-color: var(--green); color: white; }
 .button.lime { background: var(--lime); color: #1e3521; }
+.button.rally-secondary { background: #1c3529; color: #f3f7e8; border-color: #779884; text-decoration: none; }
+.button.rally-secondary:hover { background: #345642; }
+.rally-content :focus-visible { outline-color: var(--lime); }
 .button.outlined { background: white; border-color: #cdd6cb; }
 .button.quiet { color: #455b4b; }
 .button.text-button { color: #2e6545; padding-inline: 0; min-height: 32px; }
@@ -219,7 +222,6 @@ label + input, label + textarea, label + .input-action, label + .button-row { ma
 .move-tools .button { padding: 3px 6px; min-height: 27px; min-width: 24px; }
 
 .lesson-card { padding: 15px 16px; }
-.lesson-grid:has(> section[hidden]) > section:not([hidden]) { grid-column: 1 / -1; }
 .search-card { margin-top: 13px; }
 .search-card form { max-width: 460px; }
 .lesson-card h2 + p { color: var(--muted); margin: 5px 0 12px; font-size: .87rem; }
@@ -241,6 +243,7 @@ summary { cursor: pointer; }
 .comparison-results td, .comparison-results thead th { text-align: right; }
 .comparison-results thead th:first-child { text-align: left; }
 .growth-panel { margin-top: 13px; margin-bottom: 36px; }
+#growth-panel { scroll-margin-top: 12px; }
 .growth-panel h2 { padding: 13px 16px 0; }
 .growth-content { padding: 6px 16px 16px; }
 .growth-content p { color: var(--muted); font-size: .83rem; margin-bottom: 6px; }

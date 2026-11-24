@@ -1,13 +1,15 @@
 import { Experiment, MAX_PRICES, RotationPractice } from './experiment.js';
 import { renderGrowthPlots } from './growth-view.js';
 import { formatPrice, generatePrices, parsePrice, parseSequence } from './prices.js';
-import { ALTERNATE_PRICES, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_SUBTREE_TRANSFER, RALLY_TARGET } from './rally.js';
+import { ALTERNATE_PRICES, buildRallyExample, RALLY_FIRST_IMBALANCE, RALLY_PRICES, RALLY_TARGET } from './rally.js';
 import { RotationScene } from './rotation-scene.js';
 import { balance, height, inOrderNodes } from './trees.js';
 import { TreeView } from './tree-view.js';
 
 const byId = id => document.getElementById(id);
 const experiment = new Experiment();
+const rallyExample = buildRallyExample();
+const exampleGrowthLabel = 'Example market rally';
 const views = {
   bst: new TreeView(byId('bst-view'), { label: 'Ordinary binary search tree' }),
   avl: new TreeView(byId('avl-view'), { label: 'AVL tree' }),
@@ -20,7 +22,6 @@ const labDialog = byId('lab-dialog');
 const labHost = byId('lab-view');
 const orbitHost = byId('lab-3d');
 const rotationScene = new RotationScene(orbitHost);
-const preview3D = new URLSearchParams(location.search).get('preview') === '3d';
 const labView = new TreeView(labHost, {
   label: 'Rotation exercise tree',
   onSelect: updateLabButtons,
@@ -33,7 +34,6 @@ let rallyResult = null;
 let alternateResult = null;
 let growthSelection = null;
 let pendingRepair = null;
-let transferTrace = null;
 let shownChallenge = null;
 let lastSearchTarget = null;
 let practice = null;
@@ -121,7 +121,6 @@ function updateControls() {
   byId('play').disabled = batchPlaying ? active.pause : !availableSteps();
   byId('play').textContent = batchPlaying ? (active.pause ? 'Pausing…' : 'Pause') : 'Play ▶';
   byId('repair-pause').hidden = !pendingRepair || Boolean(active);
-  byId('guided-rotation').hidden = !transferTrace || (runKind === 'rally' && availableSteps());
   byId('search-submit').disabled = Boolean(pendingRepair) || (runKind !== 'custom' && (availableSteps() || (active && active.kind !== 'search')));
   const guidedFinished = runKind !== 'custom' && !availableSteps() && !batchPlaying;
   byId('predict-rally').hidden = runKind !== 'rally' || !guidedFinished || Boolean(active) || Boolean(rallyResult);
@@ -208,7 +207,6 @@ function resetGuidedRun() {
   alternateResult = null;
   growthSelection = null;
   pendingRepair = null;
-  transferTrace = null;
 }
 
 function showSequence(open, mode) {
@@ -421,9 +419,6 @@ byId('clear').addEventListener('click', () => {
 async function showInsertion(change, signal, quick = false) {
   const { entry, bstPath, avlPath, rotation } = change;
   const pausesForRepair = runKind === 'rally' && rotation && entry.key === RALLY_FIRST_IMBALANCE;
-  if (runKind === 'rally' && rotation && entry.key === RALLY_SUBTREE_TRANSFER) {
-    transferTrace = experiment.challenge;
-  }
   updateRun();
   renderTrees(rotation?.before, pausesForRepair ? rotation.pivot : null);
   status('build-status', `Inserting ${formatPrice(entry.key)}`);
@@ -618,15 +613,16 @@ function renderComparison() {
 function renderGrowth({ updateTables = true } = {}) {
   const rows = experiment.summary();
   const comparison = runKind === 'alternate' && rallyResult;
+  const showingExample = !rows.length && !comparison;
   const runs = comparison
     ? [{ label: 'Market rally', rows: rallyResult.rows }, { label: 'Different order', rows }]
-    : [{ label: runKind === 'rally' ? 'Market rally' : 'Current run', rows }];
+    : showingExample
+      ? [{ label: exampleGrowthLabel, rows: rallyExample.rows }]
+      : [{ label: runKind === 'rally' ? 'Market rally' : 'Current run', rows }];
   const count = Math.max(...runs.map(run => run.rows.length));
-  byId('growth-empty').hidden = count > 0;
-  byId('growth-data').hidden = count === 0;
-  if (!count) return;
+  byId('growth-example').hidden = !showingExample;
 
-  const domain = runKind === 'custom'
+  const domain = runKind === 'custom' && !showingExample
     ? { prices: count, height: Math.max(1, ...rows.flatMap(row => [row.bstHeight, row.avlHeight])) }
     : { prices: RALLY_PRICES.length, height: RALLY_PRICES.length - 1 };
   const selected = Math.min(growthSelection ?? count, count);
@@ -647,9 +643,15 @@ function renderGrowthTables() {
     writeGrowthTable(byId('growth-rally-table'), savedRally.rows, 'Market rally · Heights by insertion');
   }
   const rows = experiment.summary(lastSearchTarget);
-  byId('growth-table-wrap').hidden = !rows.length;
+  const table = byId('growth-table');
+  const showingExample = !rows.length && !savedRally;
+  byId('growth-table-wrap').hidden = !rows.length && !showingExample;
+  if (showingExample) {
+    writeGrowthTable(table, rallyExample.rows, exampleGrowthLabel);
+    return;
+  }
   const label = { rally: 'Market rally', alternate: 'Different order' }[runKind] ?? 'Current run';
-  writeGrowthTable(byId('growth-table'), rows, label, lastSearchTarget);
+  writeGrowthTable(table, rows, label, lastSearchTarget);
 }
 
 function writeGrowthTable(table, rows, label, target = null) {
@@ -700,7 +702,10 @@ byId('view-rally-repair').addEventListener('click', event => {
   if (pendingRepair) openLab(false, { trace: pendingRepair, opener: event.currentTarget });
 });
 byId('review-transfer').addEventListener('click', event => {
-  if (transferTrace) openLab(false, { trace: transferTrace, opener: event.currentTarget, showTransfer: true });
+  openLab(false, { trace: rallyExample.transfer, opener: event.currentTarget, showTransfer: true });
+});
+byId('open-3d').addEventListener('click', event => {
+  openLab(false, { trace: rallyExample.transfer, opener: event.currentTarget, showTransfer: true, startIn3D: true });
 });
 byId('rotation-front').addEventListener('click', () => setRotationAngle(false));
 byId('rotation-angle').addEventListener('click', () => setRotationAngle(true));
@@ -731,7 +736,7 @@ labDialog.addEventListener('close', () => {
   labOpener = null;
 });
 
-function openLab(interactive, { trace = experiment.challenge, opener, showTransfer = false } = {}) {
+function openLab(interactive, { trace = experiment.challenge, opener, showTransfer = false, startIn3D = false } = {}) {
   if (!trace || labDialog.open) return;
   solution = trace;
   labOpener = opener;
@@ -748,7 +753,7 @@ function openLab(interactive, { trace = experiment.challenge, opener, showTransf
   practice = interactive ? new RotationPractice(solution.before) : null;
   labView.mode = interactive ? 'practice' : 'read';
   labTransfer = showTransfer ? findTransferredBranch(solution) : null;
-  byId('rotation-views').hidden = !labTransfer || !preview3D;
+  byId('rotation-views').hidden = !labTransfer;
   setRotationAngle(false);
   renderRotationKey();
   byId('lab-title').textContent = interactive ? 'Rotation practice' : 'Replay the repair';
@@ -767,6 +772,7 @@ function openLab(interactive, { trace = experiment.challenge, opener, showTransf
     solutionIndex = 0;
     renderSolution();
     if (labTransfer) labView.fit();
+    if (labTransfer && startIn3D) setRotationAngle(true);
   }
 }
 
@@ -855,3 +861,4 @@ function renderSolution() {
 renderTrees();
 updateControls();
 updatePreview();
+renderGrowth();

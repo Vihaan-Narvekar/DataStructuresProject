@@ -6,8 +6,8 @@
   <meta name="description" content="Build and compare a binary search tree and an AVL tree in an interactive stock-price experiment.">
   <meta name="theme-color" content="#f6f6ef">
   <title>The Market That Broke a Tree</title>
-  <link rel="stylesheet" href="./styles.css">
-  <script defer src="./app.bundle.js"></script>
+  <link rel="stylesheet" href="./styles.css?v=homepage-3d">
+  <script defer src="./app.bundle.js?v=homepage-3d"></script>
 </head>
 <body>
   <a class="skip-link" href="#workspace">Skip to the experiment</a>
@@ -38,7 +38,11 @@
         <div class="rally-content">
           <h2 id="rally-title">The market rally</h2>
           <p>Watch the same prices build an ordinary BST and an AVL tree, one insertion at a time.</p>
-          <button type="button" id="try-rally" class="button lime">Run the rally <span aria-hidden="true">▶</span></button>
+          <div class="button-row">
+            <button type="button" id="try-rally" class="button lime">Run the rally <span aria-hidden="true">▶</span></button>
+            <button type="button" id="open-3d" class="button rally-secondary">Explore in 3D</button>
+            <a href="#growth-panel" class="button rally-secondary">View growth chart</a>
+          </div>
         </div>
       </section>
     </section>
@@ -189,9 +193,9 @@
     </section>
 
     <div class="lesson-grid">
-      <section class="surface lesson-card" id="guided-rotation" aria-labelledby="guided-rotation-title" hidden>
+      <section class="surface lesson-card" aria-labelledby="guided-rotation-title">
         <h2 id="guided-rotation-title">Follow a moving branch</h2>
-        <p>On the sixth insertion, the branch rooted at $102 changes parents. Step through the repair to see where it goes.</p>
+        <p>On the sixth rally insertion, the branch rooted at $102 changes parents. Step through the example in 2D or 3D.</p>
         <button type="button" id="review-transfer" class="button outlined">Review subtree transfer <span aria-hidden="true">→</span></button>
       </section>
       <section class="surface lesson-card" aria-labelledby="rotation-title">
@@ -220,12 +224,12 @@
       </section>
     </div>
 
-    <section class="surface growth-panel" aria-labelledby="growth-title">
+    <section class="surface growth-panel" id="growth-panel" tabindex="-1" aria-labelledby="growth-title">
       <h2 id="growth-title">Compare as the trees grow</h2>
       <div class="growth-content">
         <p>Each point shows the height in edges after insertion and any AVL repair. A search can visit at most height + 1 nodes in a nonempty tree.</p>
-        <p id="growth-empty">Insert a price to start recording heights.</p>
-        <div id="growth-data" hidden>
+        <p id="growth-example">This chart uses the eight example prices. Insert a price or start the rally to chart your run.</p>
+        <div>
           <div class="growth-legend" aria-label="Chart legend"><span class="legend-bst">Ordinary BST</span><span class="legend-avl">AVL tree</span></div>
           <div id="growth-charts" class="growth-charts"></div>
           <div class="growth-inspect">

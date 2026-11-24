@@ -406,6 +406,16 @@
   var ALTERNATE_PRICES = Object.freeze([10300, 10100, 10500, 1e4, 10200, 10400, 10600, 10700]);
   var RALLY_FIRST_IMBALANCE = RALLY_PRICES[2];
   var RALLY_SUBTREE_TRANSFER = RALLY_PRICES[5];
+  function buildRallyExample() {
+    const rally = new Experiment();
+    rally.startReplay(RALLY_PRICES);
+    let transfer;
+    for (const key of RALLY_PRICES) {
+      rally.step();
+      if (key === RALLY_SUBTREE_TRANSFER) transfer = rally.challenge;
+    }
+    return { rows: rally.summary(), transfer };
+  }
 
   // docs/js/rotation-scene.js
   var defaultCamera = { yaw: -0.46, pitch: 0.27, zoom: 1 };
@@ -1035,6 +1045,8 @@
   // docs/js/app.js
   var byId = (id) => document.getElementById(id);
   var experiment = new Experiment();
+  var rallyExample = buildRallyExample();
+  var exampleGrowthLabel = "Example market rally";
   var views = {
     bst: new TreeView(byId("bst-view"), { label: "Ordinary binary search tree" }),
     avl: new TreeView(byId("avl-view"), { label: "AVL tree" })
@@ -1047,7 +1059,6 @@
   var labHost = byId("lab-view");
   var orbitHost = byId("lab-3d");
   var rotationScene = new RotationScene(orbitHost);
-  var preview3D = new URLSearchParams(location.search).get("preview") === "3d";
   var labView = new TreeView(labHost, {
     label: "Rotation exercise tree",
     onSelect: updateLabButtons,
@@ -1059,7 +1070,6 @@
   var alternateResult = null;
   var growthSelection = null;
   var pendingRepair = null;
-  var transferTrace = null;
   var shownChallenge = null;
   var lastSearchTarget = null;
   var practice = null;
@@ -1139,7 +1149,6 @@
     byId("play").disabled = batchPlaying ? active.pause : !availableSteps();
     byId("play").textContent = batchPlaying ? active.pause ? "Pausing\u2026" : "Pause" : "Play \u25B6";
     byId("repair-pause").hidden = !pendingRepair || Boolean(active);
-    byId("guided-rotation").hidden = !transferTrace || runKind === "rally" && availableSteps();
     byId("search-submit").disabled = Boolean(pendingRepair) || runKind !== "custom" && (availableSteps() || active && active.kind !== "search");
     const guidedFinished = runKind !== "custom" && !availableSteps() && !batchPlaying;
     byId("predict-rally").hidden = runKind !== "rally" || !guidedFinished || Boolean(active) || Boolean(rallyResult);
@@ -1215,7 +1224,6 @@
     alternateResult = null;
     growthSelection = null;
     pendingRepair = null;
-    transferTrace = null;
   }
   function showSequence(open, mode) {
     sequencePanel.hidden = !open;
@@ -1409,9 +1417,6 @@
   async function showInsertion(change, signal, quick = false) {
     const { entry, bstPath, avlPath, rotation } = change;
     const pausesForRepair = runKind === "rally" && rotation && entry.key === RALLY_FIRST_IMBALANCE;
-    if (runKind === "rally" && rotation && entry.key === RALLY_SUBTREE_TRANSFER) {
-      transferTrace = experiment.challenge;
-    }
     updateRun();
     renderTrees(rotation?.before, pausesForRepair ? rotation.pivot : null);
     status("build-status", `Inserting ${formatPrice(entry.key)}`);
@@ -1590,12 +1595,11 @@
   function renderGrowth({ updateTables = true } = {}) {
     const rows = experiment.summary();
     const comparison = runKind === "alternate" && rallyResult;
-    const runs = comparison ? [{ label: "Market rally", rows: rallyResult.rows }, { label: "Different order", rows }] : [{ label: runKind === "rally" ? "Market rally" : "Current run", rows }];
+    const showingExample = !rows.length && !comparison;
+    const runs = comparison ? [{ label: "Market rally", rows: rallyResult.rows }, { label: "Different order", rows }] : showingExample ? [{ label: exampleGrowthLabel, rows: rallyExample.rows }] : [{ label: runKind === "rally" ? "Market rally" : "Current run", rows }];
     const count = Math.max(...runs.map((run) => run.rows.length));
-    byId("growth-empty").hidden = count > 0;
-    byId("growth-data").hidden = count === 0;
-    if (!count) return;
-    const domain = runKind === "custom" ? { prices: count, height: Math.max(1, ...rows.flatMap((row) => [row.bstHeight, row.avlHeight])) } : { prices: RALLY_PRICES.length, height: RALLY_PRICES.length - 1 };
+    byId("growth-example").hidden = !showingExample;
+    const domain = runKind === "custom" && !showingExample ? { prices: count, height: Math.max(1, ...rows.flatMap((row) => [row.bstHeight, row.avlHeight])) } : { prices: RALLY_PRICES.length, height: RALLY_PRICES.length - 1 };
     const selected = Math.min(growthSelection ?? count, count);
     const cursor = byId("growth-cursor");
     cursor.max = count;
@@ -1613,9 +1617,15 @@
       writeGrowthTable(byId("growth-rally-table"), savedRally.rows, "Market rally \xB7 Heights by insertion");
     }
     const rows = experiment.summary(lastSearchTarget);
-    byId("growth-table-wrap").hidden = !rows.length;
+    const table = byId("growth-table");
+    const showingExample = !rows.length && !savedRally;
+    byId("growth-table-wrap").hidden = !rows.length && !showingExample;
+    if (showingExample) {
+      writeGrowthTable(table, rallyExample.rows, exampleGrowthLabel);
+      return;
+    }
     const label = { rally: "Market rally", alternate: "Different order" }[runKind] ?? "Current run";
-    writeGrowthTable(byId("growth-table"), rows, label, lastSearchTarget);
+    writeGrowthTable(table, rows, label, lastSearchTarget);
   }
   function writeGrowthTable(table, rows, label, target = null) {
     table.replaceChildren();
@@ -1662,7 +1672,10 @@
     if (pendingRepair) openLab(false, { trace: pendingRepair, opener: event.currentTarget });
   });
   byId("review-transfer").addEventListener("click", (event) => {
-    if (transferTrace) openLab(false, { trace: transferTrace, opener: event.currentTarget, showTransfer: true });
+    openLab(false, { trace: rallyExample.transfer, opener: event.currentTarget, showTransfer: true });
+  });
+  byId("open-3d").addEventListener("click", (event) => {
+    openLab(false, { trace: rallyExample.transfer, opener: event.currentTarget, showTransfer: true, startIn3D: true });
   });
   byId("rotation-front").addEventListener("click", () => setRotationAngle(false));
   byId("rotation-angle").addEventListener("click", () => setRotationAngle(true));
@@ -1692,7 +1705,7 @@
     if (labOpener && !labOpener.closest("[hidden]")) labOpener.focus({ preventScroll: true });
     labOpener = null;
   });
-  function openLab(interactive, { trace = experiment.challenge, opener, showTransfer = false } = {}) {
+  function openLab(interactive, { trace = experiment.challenge, opener, showTransfer = false, startIn3D = false } = {}) {
     if (!trace || labDialog.open) return;
     solution = trace;
     labOpener = opener;
@@ -1709,7 +1722,7 @@
     practice = interactive ? new RotationPractice(solution.before) : null;
     labView.mode = interactive ? "practice" : "read";
     labTransfer = showTransfer ? findTransferredBranch(solution) : null;
-    byId("rotation-views").hidden = !labTransfer || !preview3D;
+    byId("rotation-views").hidden = !labTransfer;
     setRotationAngle(false);
     renderRotationKey();
     byId("lab-title").textContent = interactive ? "Rotation practice" : "Replay the repair";
@@ -1726,6 +1739,7 @@
       solutionIndex = 0;
       renderSolution();
       if (labTransfer) labView.fit();
+      if (labTransfer && startIn3D) setRotationAngle(true);
     }
   }
   function findTransferredBranch(trace) {
@@ -1799,4 +1813,5 @@
   renderTrees();
   updateControls();
   updatePreview();
+  renderGrowth();
 })();

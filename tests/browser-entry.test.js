@@ -9,7 +9,7 @@ test('the browser entry uses a self-contained classic script for direct file ope
   assert.ok(script, 'The lesson must load its JavaScript');
   assert.doesNotMatch(script, /\btype\s*=/i);
   assert.match(script, /\bdefer\b/i);
-  assert.match(script, /\bsrc="\.\/app\.bundle\.js"/i);
+  assert.match(script, /\bsrc="\.\/app\.bundle\.js(?:\?v=[\w-]+)?"/i);
 
   const bundle = readFileSync(new URL('../docs/app.bundle.js', import.meta.url), 'utf8');
   assert.doesNotMatch(bundle, /\bimport\s*\(/);
