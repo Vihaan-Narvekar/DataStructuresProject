@@ -1,6 +1,8 @@
-# The Market That Broke a Tree
+# AVL vs Binary Tree when Storing Stock Prices
 
 Build an ordinary binary search tree and an AVL tree from the same stock prices. Replay the keys in different orders, predict search costs, and repair an AVL imbalance with a rotation.
+
+[Open the live site on GitHub Pages](https://vihaan-narvekar.github.io/DataStructuresProject/).
 
 ## Run locally
 
@@ -48,4 +50,4 @@ npm run build
 
 ## GitHub Pages handoff
 
-The static site entry point is `docs/index.html`. When the GitHub repository is ready, select **Deploy from a branch** in **Settings → Pages**, then choose `main` and `/docs`. See the [release checklist](DEVELOPMENT_PLAN.md#publish-the-github-pages-showcase) for the live interaction checks.
+GitHub Pages serves `docs/index.html` from `main`. See the [release checklist](DEVELOPMENT_PLAN.md#publish-the-github-pages-showcase) for the live interaction checks.
